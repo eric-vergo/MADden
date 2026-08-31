@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MADden — audio bench</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0; padding: 0; min-height: 100%; background: #0d1117; color: #d8dee9;
+        font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+      }
+      main { max-width: 900px; margin: 0 auto; padding: 32px 20px 64px; }
+      h1 { font-size: 22px; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 4px; }
+      p.sub { margin: 0 0 24px; color: #7d8799; font-size: 13px; }
+      h2 { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+           color: #7d8799; margin: 28px 0 10px; }
+      #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+      button {
+        font: inherit; font-size: 13px; padding: 10px 12px; border-radius: 6px;
+        border: 1px solid #2c3441; background: #161c26; color: #d8dee9; cursor: pointer;
+        text-align: left;
+      }
+      button:hover { background: #1f2733; border-color: #3d4756; }
+      button:active { background: #2a3342; }
+      .row { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+      .row label { width: 130px; font-size: 13px; color: #9aa4b5; }
+      .row input[type='range'] { flex: 1; accent-color: #e8b93e; }
+      .row output { width: 52px; text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+      #status {
+        margin-top: 20px; padding: 10px 12px; border-radius: 6px; background: #161c26;
+        border: 1px solid #2c3441; font-size: 13px; color: #9aa4b5; min-height: 19px;
+      }
+      .warn { color: #e8b93e; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>MADden audio bench</h1>
+      <p class="sub">
+        Click anything to unlock the AudioContext, then audition every SfxName and drive
+        the crowd bed by hand.
+      </p>
+
+      <h2>SFX</h2>
+      <div id="grid"></div>
+
+      <h2>Crowd bed</h2>
+      <div class="row">
+        <label for="intensity">intensity</label>
+        <input id="intensity" type="range" min="0" max="1" step="0.01" value="0.25" />
+        <output id="intensityOut">0.25</output>
+      </div>
+      <div class="row">
+        <button id="swell">Swell (big play)</button>
+        <button id="deflate">Deflate (away dagger)</button>
+        <button id="stop">Stop ambience</button>
+      </div>
+
+      <h2>Buses</h2>
+      <div class="row">
+        <label for="volMaster">master</label>
+        <input id="volMaster" type="range" min="0" max="1" step="0.01" value="0.7" />
+        <output id="volMasterOut">0.70</output>
+      </div>
+      <div class="row">
+        <label for="volSfx">sfx</label>
+        <input id="volSfx" type="range" min="0" max="1" step="0.01" value="0.8" />
+        <output id="volSfxOut">0.80</output>
+      </div>
+      <div class="row">
+        <label for="volCrowd">crowd</label>
+        <input id="volCrowd" type="range" min="0" max="1" step="0.01" value="0.6" />
+        <output id="volCrowdOut">0.60</output>
+      </div>
+      <div class="row">
+        <label for="volUi">ui</label>
+        <input id="volUi" type="range" min="0" max="1" step="0.01" value="0.7" />
+        <output id="volUiOut">0.70</output>
+      </div>
+
+      <div id="status">Locked — click a button to start the AudioContext.</div>
+    </main>
+    <script type="module" src="/src/audio/demo.ts"></script>
+  </body>
+</html>

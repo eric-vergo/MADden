@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MADden</title>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; background: #0d1117; overflow: hidden; }
+      #stage { position: relative; width: 100vw; height: 100vh; }
+      #game { position: absolute; inset: 0; display: block; }
+      #ui { position: absolute; inset: 0; pointer-events: none; font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif; }
+      #ui > * { pointer-events: auto; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="game"></canvas>
+      <div id="ui"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

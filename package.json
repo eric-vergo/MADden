@@ -1,0 +1,20 @@
+{
+  "name": "madden",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:soak": "vitest run --mode soak tests/soak.test.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.pure.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.3.0",
+    "vitest": "^3.1.0"
+  }
+}
