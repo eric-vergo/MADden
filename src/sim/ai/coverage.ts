@@ -1,13 +1,10 @@
 // Coverage (sim-design §9): man mirror with a reaction ring buffer, zone
 // landmark drops with pattern matching, and break-on-ball.
-//
-// TODO(integration): the zone landmark table below is local because
-// src/data/zones.ts (S2) has not landed. When it does, swap ZONE_LANDMARKS for
-// that module's table — the shape ({x, y, radius, minDepth} in the normalized
-// frame, resolved from the ball spot + LOS) is intentionally identical.
+// Landmark geometry comes from data/zones.ts (S2); this module owns behavior.
 
 import type { ManTarget, SimPlayer, Vec2, ZoneName } from '../types';
 import { COVERAGE } from '../../data/balance';
+import { ZONE_LANDMARKS, type ZoneLandmark } from '../../data/zones';
 import { maxSpeed } from '../physics/movement';
 import { dist, len, norm, sub } from '../vec';
 import {
@@ -18,35 +15,8 @@ import { clampFieldPoint, clampFieldX, depthYd, lateral } from './frame';
 import { applyMove, arrive, faceToward, interceptBall, predictLanding, seek } from './steering';
 import { routeComplete } from './routes';
 
-export interface ZoneLandmark {
-  /** Normalized offset from the ball spot. */
-  x: number;
-  /** Normalized depth past the LOS. */
-  y: number;
-  radius: number;
-  /** Never voluntarily play shallower than this (until the ball is thrown). */
-  minDepth: number;
-}
-
-// TODO(balance): zone landmark geometry.
-export const ZONE_LANDMARKS: Record<ZoneName, ZoneLandmark> = {
-  'deepThird-L': { x: -13, y: 18, radius: 9, minDepth: 12 },
-  'deepThird-M': { x: 0, y: 20, radius: 9, minDepth: 12 },
-  'deepThird-R': { x: 13, y: 18, radius: 9, minDepth: 12 },
-  'deepHalf-L': { x: -9, y: 16, radius: 11, minDepth: 11 },
-  'deepHalf-R': { x: 9, y: 16, radius: 11, minDepth: 11 },
-  'deepQuarter-1': { x: -16, y: 15, radius: 8, minDepth: 10 },
-  'deepQuarter-2': { x: -5.5, y: 15, radius: 8, minDepth: 10 },
-  'deepQuarter-3': { x: 5.5, y: 15, radius: 8, minDepth: 10 },
-  'deepQuarter-4': { x: 16, y: 15, radius: 8, minDepth: 10 },
-  'curlFlat-L': { x: -13, y: 7, radius: 8, minDepth: 3 },
-  'curlFlat-R': { x: 13, y: 7, radius: 8, minDepth: 3 },
-  'hook-L': { x: -6, y: 9, radius: 7, minDepth: 4 },
-  'hook-M': { x: 0, y: 9, radius: 7, minDepth: 4 },
-  'hook-R': { x: 6, y: 9, radius: 7, minDepth: 4 },
-  'flat-L': { x: -16, y: 3.5, radius: 7, minDepth: 0 },
-  'flat-R': { x: 16, y: 3.5, radius: 7, minDepth: 0 },
-};
+export type { ZoneLandmark };
+export { ZONE_LANDMARKS };
 
 // TODO(balance): coverage AI tunables not present in balance.COVERAGE.
 export const COVERAGE_AI = {
@@ -62,6 +32,9 @@ export const COVERAGE_AI = {
   /** Curl-flat breaks to the flat after this many ticks with no curl threat. */
   flatBreakTicks: 40,
   deepZoneMinDepth: 10,
+  /** Inside this distance the defender mirrors velocity instead of chasing. */
+  mirrorLockYd: 2.0,
+  mirrorGain: 2.5,
 } as const;
 
 const MIND_TGT = 'cvTgt';
@@ -198,8 +171,18 @@ export function updateMan(ctx: AiCtx, i: number): void {
     aim = { x: dpos.x + shadeNorm * ctx.dir, y: dpos.y + cushion * ctx.dir };
   }
 
+  // Close in at speed, then MATCH the receiver's (delayed) velocity with a
+  // proportional correction — position-seeking alone oscillates on his hip.
   const target = clampFieldPoint(aim);
-  applyMove(ctx, i, seek(p, target), { sprinting: true });
+  const off = sub(target, p.pos2);
+  const d = len(off);
+  const desired: Vec2 = d > COVERAGE_AI.mirrorLockYd
+    ? seek(p, target, maxSpeed(p, { sprinting: true }))
+    : {
+        x: dvel.x + off.x * COVERAGE_AI.mirrorGain,
+        y: dvel.y + off.y * COVERAGE_AI.mirrorGain,
+      };
+  applyMove(ctx, i, desired, { sprinting: true });
   faceToward(p, t.pos2);
   p.anim = depthYd(p.pos2.y, ctx.los, ctx.dir) > recDepth + 0.5 && len(p.vel) > 0.5
     ? 'backpedal'
@@ -348,17 +331,4 @@ export function breakOnBall(ctx: AiCtx, i: number): boolean {
   faceToward(p, ctx.ball.pos2);
   p.anim = 'catching';
   return true;
-}
-
-/** Nearest defender to a point, ignoring the down/stumbling. */
-export function nearestDefenderTo(ctx: AiCtx, point: Vec2): { idx: number; d: number } {
-  let best = -1;
-  let bestD = Infinity;
-  for (let di = DEFENSE_LO; di <= DEFENSE_HI; di++) {
-    const d = ctx.players[di];
-    if (!d || isIncapacitated(d)) continue;
-    const dd = dist(point, d.pos2);
-    if (dd < bestD) { bestD = dd; best = di; }
-  }
-  return { idx: best, d: bestD };
 }

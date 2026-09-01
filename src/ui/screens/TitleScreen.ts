@@ -1,5 +1,6 @@
 import { Screen } from '../Screen';
 import { append, div, keyLegend } from '../dom';
+import { eventCode } from '../focus';
 import { MainMenuScreen } from './MainMenuScreen';
 
 const IGNORED_CODES: ReadonlySet<string> = new Set([
@@ -33,7 +34,8 @@ export class TitleScreen extends Screen {
   }
 
   onKey(e: KeyboardEvent): boolean {
-    if (IGNORED_CODES.has(e.code) || e.repeat) return false;
+    const code = eventCode(e);
+    if (IGNORED_CODES.has(code) || e.repeat) return false;
     this.services.audio.unlock();
     this.blip('menuSelect');
     this.manager.replace(new MainMenuScreen());

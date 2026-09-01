@@ -6,7 +6,7 @@ import { FIELD_W } from '../constants';
 import { MOVE } from '../../data/balance';
 
 /** Sideline tolerance: a foot on the paint is out. */
-export const SIDELINE_MARGIN = 0.3;
+export const SIDELINE_MARGIN = 0.3; // TODO(balance)
 
 export function isOutOfBoundsX(x: number): boolean {
   return x < SIDELINE_MARGIN || x > FIELD_W - SIDELINE_MARGIN;

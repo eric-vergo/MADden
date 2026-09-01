@@ -1,7 +1,7 @@
 import type { ScheduledGame, TeamIdentity } from '../../meta/types';
 import { Screen, FocusRing, type FocusEntry } from '../Screen';
 import { append, applyAccent, clear, div, num, screenFrame, span, table } from '../dom';
-import { cycle, dirForCode, isBack, isConfirm, tabDeltaForCode } from '../focus';
+import { cycle, dirForCode, eventCode, isBack, isConfirm, tabDeltaForCode } from '../focus';
 import { formatRecord } from '../format';
 import {
   LEADER_CATEGORIES, buildLeaders, buildStandings, type LeaderCategoryDef,
@@ -197,7 +197,7 @@ export class SeasonHubScreen extends Screen {
     );
     const cols = div('standings-cols grow');
     for (const group of groups) {
-      const panel = div('panel col');
+      const panel = div('panel col scroll');
       panel.appendChild(div('panel-title', group.division));
       panel.appendChild(table({
         columns: ['Team', 'W-L', 'PCT', 'DIV', 'PF', 'PA', 'DIFF'],
@@ -231,7 +231,7 @@ export class SeasonHubScreen extends Screen {
       userTeamId: season?.userTeamId,
       limit: 10,
     });
-    const panel = div('panel col grow');
+    const panel = div('panel col grow scroll');
     panel.appendChild(table({
       columns: ['#', 'Player', 'Team', category.valueHeader, 'Detail'],
       columnClasses: ['right', '', '', 'right', ''],
@@ -283,14 +283,15 @@ export class SeasonHubScreen extends Screen {
   // --- input ---------------------------------------------------------------
 
   onKey(e: KeyboardEvent): boolean {
-    const tabDelta = tabDeltaForCode(e.code);
+    const code = eventCode(e);
+    const tabDelta = tabDeltaForCode(code);
     if (tabDelta !== 0) {
       this.tabIndex = cycle(this.tabIndex, tabDelta, TABS.length);
       this.blip('menuMove');
       this.renderTab();
       return true;
     }
-    const dir = dirForCode(e.code);
+    const dir = dirForCode(code);
     const tab: TabName = TABS[this.tabIndex] ?? 'Overview';
     if (dir === 'left' || dir === 'right') {
       const delta = dir === 'right' ? 1 : -1;
@@ -311,7 +312,7 @@ export class SeasonHubScreen extends Screen {
       if (this.ring.move(dir)) this.blip('menuMove');
       return true;
     }
-    if (isConfirm(e.code)) {
+    if (isConfirm(code)) {
       const key = this.ring.currentKey();
       const entry = this.ring.current();
       if (key === undefined || entry?.enabled === false) {
@@ -327,7 +328,7 @@ export class SeasonHubScreen extends Screen {
       action.run();
       return true;
     }
-    if (isBack(e.code)) {
+    if (isBack(code)) {
       this.blip('menuBack');
       this.services.saveAndExit();
       this.manager.pop();

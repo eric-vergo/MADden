@@ -7,9 +7,10 @@ import { tryCarrierMove, type CarrierMove } from '../actions';
 import { dist, dot, fromAngle, len, norm, sub } from '../vec';
 import { maxSpeed } from '../physics/movement';
 import {
-  DEFENSE_HI, DEFENSE_LO, OFFENSE_HI, OFFENSE_LO,
+  OFFENSE_HI, OFFENSE_LO,
   isIncapacitated, mindGet, mindSet, nearestOpponentTo, type AiCtx,
 } from './context';
+import { alignmentOf } from './memory';
 import { GAP_ORDER, GAP_X, clampFieldPoint, depthYd, neighborGaps } from './frame';
 import { applyMove, faceToward, seek } from './steering';
 import { FIELD_W } from '../constants';
@@ -42,6 +43,7 @@ const MIND_GAP = 'crGap';
 const MIND_GAP_TICK = 'crGapTick';
 const MIND_BOUNCED = 'crBounced';
 const MIND_MOVE_TICK = 'crMoveTick';
+const MIND_PATH_WP = 'crPathWp';
 
 function designedAimGap(ctx: AiCtx, i: number): GapId | null {
   const p = ctx.players[i];
@@ -56,16 +58,16 @@ function isFreeDefender(d: SimPlayer): boolean {
   return d.engagedWith === null && !isIncapacitated(d);
 }
 
-function scoreGap(ctx: AiCtx, gap: GapId): number {
+function scoreGap(ctx: AiCtx, gap: GapId, team: number): number {
   const point: Vec2 = {
     x: ctx.ball.pos2.x + GAP_X[gap] * ctx.dir,
     y: ctx.los + CARRIER_AI.gapAimDepthYd * ctx.dir,
   };
-  let clearance = CARRIER_AI.gapLaneScanYd;
+  let clearance: number = CARRIER_AI.gapLaneScanYd;
   let inLane = 0;
-  for (let di = DEFENSE_LO; di <= DEFENSE_HI; di++) {
+  for (let di = 0; di < ctx.players.length; di++) {
     const d = ctx.players[di];
-    if (!d || !isFreeDefender(d)) continue;
+    if (!d || d.team === team || !isFreeDefender(d)) continue;
     const dx = Math.abs(d.pos2.x - point.x);
     const dep = depthYd(d.pos2.y, ctx.los, ctx.dir);
     if (dx < CARRIER_AI.gapLaneScanYd) clearance = Math.min(clearance, dx);
@@ -86,7 +88,7 @@ function chooseGap(ctx: AiCtx, i: number, aim: GapId): GapId {
   let best = curGap;
   let bestScore = -Infinity;
   for (const g of options) {
-    const s = scoreGap(ctx, g) + (g === curGap ? 0.6 : 0);
+    const s = scoreGap(ctx, g, p.team) + (g === curGap ? 0.6 : 0);
     if (s > bestScore) { bestScore = s; best = g; }
   }
   if (best !== curGap) {
@@ -188,7 +190,7 @@ function openFieldTarget(ctx: AiCtx, i: number): Vec2 {
 
   // Two nearest pursuers weight the space term.
   const threats: SimPlayer[] = [];
-  for (let di = DEFENSE_LO; di <= DEFENSE_HI; di++) {
+  for (let di = 0; di < ctx.players.length; di++) {
     const d = ctx.players[di];
     if (!d || isIncapacitated(d) || d.team === p.team) continue;
     threats.push(d);
@@ -198,8 +200,9 @@ function openFieldTarget(ctx: AiCtx, i: number): Vec2 {
 
   let best: Vec2 = { x: p.pos2.x + downfield.x, y: p.pos2.y + downfield.y };
   let bestScore = -Infinity;
-  for (let s = 0; s < CARRIER_AI.fanSteps; s++) {
-    const frac = CARRIER_AI.fanSteps === 1 ? 0 : (s / (CARRIER_AI.fanSteps - 1)) * 2 - 1;
+  const steps: number = CARRIER_AI.fanSteps;
+  for (let s = 0; s < steps; s++) {
+    const frac = steps === 1 ? 0 : (s / (steps - 1)) * 2 - 1;
     const ang = base + frac * CARRIER_AI.fanHalfAngleRad;
     const probe = fromAngle(ang, CARRIER_AI.fanProbeYd);
     const point: Vec2 = { x: p.pos2.x + probe.x, y: p.pos2.y + probe.y };
@@ -249,10 +252,33 @@ export function updateCarrier(ctx: AiCtx, i: number): void {
   p.anim = 'running';
 }
 
-/** Offensive players who are not the carrier block for him. */
-export function isBlockingForCarrier(ctx: AiCtx, i: number): boolean {
+/**
+ * Pre-exchange path for a designed carrier: walk the authored waypoints, then
+ * aim at the play's gap. Once the ball arrives the carrier brain takes over.
+ */
+export function updateCarryPath(ctx: AiCtx, i: number): void {
   const p = ctx.players[i];
-  if (!p || ctx.carrierIdx < 0) return false;
-  return i !== ctx.carrierIdx && p.team === ctx.ballTeam
-    && i >= OFFENSE_LO && i <= OFFENSE_HI;
+  if (!p || p.assignment.kind !== 'carry') return;
+  const a = p.assignment;
+  const align = alignmentOf(p);
+  const path = a.path;
+  let wi = Math.round(mindGet(p, MIND_PATH_WP, 0));
+
+  let target: Vec2;
+  if (wi < path.length) {
+    const wp = path[wi] as { dx: number; dy: number };
+    target = { x: align.x + wp.dx * ctx.dir, y: align.y + wp.dy * ctx.dir };
+    if (dist(p.pos2, target) <= 0.9) {
+      wi += 1;
+      mindSet(p, MIND_PATH_WP, wi);
+    }
+  } else {
+    target = {
+      x: ctx.ball.pos2.x + GAP_X[a.aimGap] * ctx.dir,
+      y: ctx.los + CARRIER_AI.gapAimDepthYd * ctx.dir,
+    };
+  }
+  const cap = ctx.t < a.meshTick ? maxSpeed(p) * 0.85 : maxSpeed(p, { sprinting: true });
+  applyMove(ctx, i, seek(p, clampFieldPoint(target), cap), { sprinting: ctx.t >= a.meshTick });
+  p.anim = 'running';
 }

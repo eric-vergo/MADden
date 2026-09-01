@@ -1,7 +1,7 @@
 import type { Difficulty } from '../../sim/types';
 import { Screen, FocusRing, type FocusEntry } from '../Screen';
 import { append, div, screenFrame, span } from '../dom';
-import { dirForCode, isBack, isConfirm } from '../focus';
+import { dirForCode, eventCode, isBack, isConfirm } from '../focus';
 import { DIFFICULTY_BLURB, DIFFICULTY_LABEL } from '../format';
 
 export interface DifficultySelection {
@@ -106,7 +106,8 @@ export class DifficultyScreen extends Screen {
   }
 
   onKey(e: KeyboardEvent): boolean {
-    const dir = dirForCode(e.code);
+    const code = eventCode(e);
+    const dir = dirForCode(code);
     if (dir === 'up' || dir === 'down') {
       if (this.ring.move(dir)) this.blip('menuMove');
       return true;
@@ -122,7 +123,7 @@ export class DifficultyScreen extends Screen {
       }
       return true;
     }
-    if (isConfirm(e.code)) {
+    if (isConfirm(code)) {
       const key = this.ring.currentKey();
       if (key === 'confirm') {
         this.blip('menuSelect');
@@ -143,7 +144,7 @@ export class DifficultyScreen extends Screen {
       }
       return true;
     }
-    if (isBack(e.code)) {
+    if (isBack(code)) {
       this.blip('menuBack');
       this.manager.pop();
       return true;

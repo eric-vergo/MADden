@@ -1,6 +1,6 @@
 import { Screen, FocusRing, type FocusEntry } from '../Screen';
-import { append, applyAccent, clear, div, num, screenFrame, span } from '../dom';
-import { cycle, dirForCode, isBack, isConfirm, tabDeltaForCode } from '../focus';
+import { accentFor, append, applyAccent, clear, div, num, screenFrame, span } from '../dom';
+import { cycle, dirForCode, eventCode, isBack, isConfirm, tabDeltaForCode } from '../focus';
 import { formatClock, formatDownDistance, formatSpot } from '../format';
 import { DEFAULT_PAINT, buildPlayDiagram, drawPlayDiagram, type DiagramPaint } from '../routeDiagram';
 import type { PlayCallRequest, PlayCallSituation, PlayCardInfo } from '../UiServices';
@@ -122,7 +122,10 @@ export class PlayCallScreen extends Screen {
       append(
         node,
         div('formation-name', group.label),
-        div('formation-meta', `${group.personnel ?? ''} ${group.cards.length} PLAYS`.trim()),
+        div('formation-meta', [
+          group.personnel === undefined ? '' : `${group.personnel} PERS`,
+          `${group.cards.length} ${group.cards.length === 1 ? 'PLAY' : 'PLAYS'}`,
+        ].filter((s) => s !== '').join(' · ')),
       );
       const hasSuggestion = this.coach === null || group.cards.some((c) => this.coach?.has(c.playId));
       node.classList.toggle('dimmed', !hasSuggestion);
@@ -202,11 +205,10 @@ export class PlayCallScreen extends Screen {
   }
 
   private layoutDiagrams(): void {
-    const paint: DiagramPaint = {
-      ...DEFAULT_PAINT,
-      routeColor: this.request.colors.secondary,
-      runColor: this.request.colors.primary === '#000000' ? DEFAULT_PAINT.runColor : this.request.colors.secondary,
-    };
+    // Routes and runs both ride the team accent; the run arrow is heavier so
+    // the two still read apart at 150px wide.
+    const teamInk = accentFor(this.request.colors);
+    const paint: DiagramPaint = { ...DEFAULT_PAINT, routeColor: teamInk, runColor: teamInk };
     for (const { canvas, card } of this.canvases) {
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
@@ -249,11 +251,12 @@ export class PlayCallScreen extends Screen {
   }
 
   onKey(e: KeyboardEvent): boolean {
-    if (e.code === 'KeyC') {
+    const code = eventCode(e);
+    if (code === 'KeyC') {
       this.toggleCoach();
       return true;
     }
-    if (e.code === 'KeyT') {
+    if (code === 'KeyT') {
       if (this.request.onTimeout) {
         this.request.onTimeout();
         this.blip('timeoutHorn');
@@ -262,7 +265,7 @@ export class PlayCallScreen extends Screen {
       }
       return true;
     }
-    const tabDelta = tabDeltaForCode(e.code);
+    const tabDelta = tabDeltaForCode(code);
     if (tabDelta !== 0) {
       const pages = this.pageCount();
       if (pages > 1) {
@@ -274,7 +277,7 @@ export class PlayCallScreen extends Screen {
       }
       return true;
     }
-    const dir = dirForCode(e.code);
+    const dir = dirForCode(code);
     if (dir) {
       if (this.panel === 'formations') {
         if (dir === 'right') {
@@ -299,7 +302,7 @@ export class PlayCallScreen extends Screen {
       }
       return true;
     }
-    if (isConfirm(e.code)) {
+    if (isConfirm(code)) {
       if (this.panel === 'formations') {
         this.panel = 'plays';
         this.formationRing.clearFocusClass();
@@ -317,7 +320,7 @@ export class PlayCallScreen extends Screen {
       this.request.onSelect(playId);
       return true;
     }
-    if (isBack(e.code)) {
+    if (isBack(code)) {
       this.blip('menuBack');
       this.manager.push(new PauseScreen());
       return true;

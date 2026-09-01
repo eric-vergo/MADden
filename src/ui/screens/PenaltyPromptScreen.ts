@@ -1,6 +1,6 @@
 import { Screen } from '../Screen';
 import { append, div, span } from '../dom';
-import { dirForCode, isConfirm } from '../focus';
+import { dirForCode, eventCode, isConfirm } from '../focus';
 import { buildPenaltyPrompt, preferredPenaltyChoice } from '../format';
 import type { PenaltyPromptRequest } from '../UiServices';
 
@@ -119,7 +119,8 @@ export class PenaltyPromptScreen extends Screen {
   }
 
   onKey(e: KeyboardEvent): boolean {
-    const dir = dirForCode(e.code);
+    const code = eventCode(e);
+    const dir = dirForCode(code);
     if (dir === 'left' || dir === 'right') {
       const next = dir === 'left' ? 'accept' : 'decline';
       if (next !== this.choice) {
@@ -129,7 +130,7 @@ export class PenaltyPromptScreen extends Screen {
       }
       return true;
     }
-    if (isConfirm(e.code)) {
+    if (isConfirm(code)) {
       this.decide(this.choice);
       return true;
     }

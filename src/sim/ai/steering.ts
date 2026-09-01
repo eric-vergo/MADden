@@ -36,7 +36,14 @@ export function arrive(
   const to = sub(target, p.pos2);
   const d = len(to);
   if (d < 1e-6) return { x: 0, y: 0 };
-  const speed = d < slowRadius && slowRadius > 1e-6 ? cap * (d / slowRadius) : cap;
+  // Settling behavior (slowRadius > 0): ease in AND respect the braking
+  // distance, otherwise a full-speed approach sails past the spot. seek()
+  // passes slowRadius 0 because runners should go THROUGH their target.
+  let speed = cap;
+  if (slowRadius > 1e-6) {
+    const eased = d < slowRadius ? cap * (d / slowRadius) : cap;
+    speed = Math.min(eased, Math.sqrt(2 * MOVE.aBrake * d));
+  }
   return { x: (to.x / d) * speed, y: (to.y / d) * speed };
 }
 
@@ -168,8 +175,4 @@ export function applyMove(
 export function faceToward(p: SimPlayer, target: Vec2): void {
   const d = sub(target, p.pos2);
   if (len(d) > 1e-6) p.facing = Math.atan2(d.y, d.x);
-}
-
-export function unit(v: Vec2): Vec2 {
-  return norm(v);
 }

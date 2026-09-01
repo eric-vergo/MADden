@@ -426,9 +426,9 @@ function firstThreatNear(ctx: AiCtx, bi: number, point: Vec2, radius: number): n
   if (!b) return -1;
   let best = -1;
   let bestD = Infinity;
-  for (let di = DEFENSE_LO; di <= DEFENSE_HI; di++) {
+  for (let di = 0; di < ctx.players.length; di++) {
     const d = ctx.players[di];
-    if (!d || isIncapacitated(d)) continue;
+    if (!d || d.team === b.team || isIncapacitated(d)) continue;
     if (d.engagedWith !== null && d.engagedWith !== bi) continue;
     const dd = dist(point, d.pos2);
     if (dd < radius && dd < bestD) { bestD = dd; best = di; }
@@ -458,9 +458,9 @@ export function blockNearestThreat(ctx: AiCtx, bi: number): void {
   const anchor = protectPoint(ctx);
   let best = -1;
   let bestScore = Infinity;
-  for (let di = DEFENSE_LO; di <= DEFENSE_HI; di++) {
+  for (let di = 0; di < ctx.players.length; di++) {
     const d = ctx.players[di];
-    if (!d || isIncapacitated(d)) continue;
+    if (!d || d.team === b.team || isIncapacitated(d)) continue;
     if (d.engagedWith !== null && d.engagedWith !== bi) continue;
     // Prefer defenders that threaten the ball and that we can actually reach.
     const score = dist(d.pos2, anchor) * 0.8 + dist(d.pos2, b.pos2) * 1.2;
@@ -530,13 +530,4 @@ function leakingBlitzer(ctx: AiCtx, bi: number): number {
     if (dd < 7 && dd < bestD) { bestD = dd; best = di; }
   }
   return best;
-}
-
-/** True when a blocker is currently locked up. */
-export function isEngagedBlocker(p: SimPlayer): boolean {
-  return p.engagedWith !== null && (p.anim === 'blocking' || p.anim === 'engaged');
-}
-
-export function distanceToBall(ctx: AiCtx, p: SimPlayer): number {
-  return len(sub(ctx.ball.pos2, p.pos2));
 }

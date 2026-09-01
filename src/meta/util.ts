@@ -1,7 +1,11 @@
 // Small pure helpers shared by the meta layer. No randomness, no time.
 
 export function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  // Normalize -0 to 0: it survives in memory but JSON.stringify writes "0",
+  // which would break save round-trip equality.
+  return v === 0 ? 0 : v;
 }
 
 /** Indexed access that fails loudly instead of leaking `undefined` (noUncheckedIndexedAccess). */

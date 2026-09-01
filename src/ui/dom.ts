@@ -42,8 +42,48 @@ export function setClass(node: HTMLElement, className: string, on: boolean): voi
 
 /** Team colors as CSS custom properties consumed by the stylesheet. */
 export function applyAccent(node: HTMLElement, colors: TeamColors): void {
-  node.style.setProperty('--accent', colors.primary);
-  node.style.setProperty('--accent-2', colors.secondary);
+  node.style.setProperty('--accent', accentFor(colors));
+  node.style.setProperty('--accent-2', colors.primary);
+  node.style.setProperty('--team-primary', colors.primary);
+  node.style.setProperty('--team-secondary', colors.secondary);
+}
+
+/**
+ * Focus outlines and highlights must stay readable on a near-black page, and
+ * half the league's primaries are very dark. Take the brighter of the two team
+ * colors and lift it toward white if it is still too dim.
+ */
+export function accentFor(colors: TeamColors): string {
+  const lp = luminance(colors.primary);
+  const ls = luminance(colors.secondary);
+  const best = lp >= ls ? colors.primary : colors.secondary;
+  const lum = Math.max(lp, ls);
+  const floor = 0.25;
+  if (lum >= floor) return best;
+  return lighten(best, Math.min(0.62, (floor - lum) * 2.2));
+}
+
+function parseHex(hex: string): [number, number, number] {
+  const h = hex.replace('#', '').trim();
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = Number.parseInt(full.slice(0, 6), 16);
+  if (!Number.isFinite(n)) return [128, 128, 128];
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function luminance(hex: string): number {
+  const [r, g, b] = parseHex(hex);
+  const lin = (v: number): number => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function lighten(hex: string, amount: number): string {
+  const [r, g, b] = parseHex(hex);
+  const mix = (v: number): number => Math.round(v + (255 - v) * amount);
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`;
 }
 
 export interface LegendItem {

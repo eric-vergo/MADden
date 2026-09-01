@@ -151,7 +151,9 @@ export const UI_CSS = `
 
 /* --- tables ------------------------------------------------------------- */
 
-.mad-ui .tbl-wrap { overflow-x: auto; overflow-y: auto; min-height: 0; }
+/* Horizontal scrolling only: vertical scrolling belongs to the panel so a
+   table is never clipped to a couple of rows inside a flex column. */
+.mad-ui .tbl-wrap { overflow-x: auto; flex: 0 0 auto; }
 .mad-ui .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .mad-ui .tbl th {
   text-align: left; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
@@ -201,7 +203,8 @@ export const UI_CSS = `
 .mad-ui .select-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; flex: 1; min-height: 0; }
 .mad-ui .division-grid { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .mad-ui .division {
-  display: grid; grid-template-columns: 96px repeat(4, minmax(0, 1fr)); gap: 8px; align-items: stretch;
+  display: grid; grid-template-columns: 78px repeat(4, minmax(0, 1fr)); gap: 8px; align-items: stretch;
+  flex: 1 1 0; min-height: 74px;
 }
 .mad-ui .division-name {
   font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-faint);
@@ -219,8 +222,10 @@ export const UI_CSS = `
 }
 .mad-ui .team-card .tc-abbrev { font-family: var(--mono); font-size: 16px; font-weight: 700; letter-spacing: 0.04em; }
 .mad-ui .team-card .tc-name { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mad-ui .team-card .tc-ovr { margin-top: auto; display: flex; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
-.mad-ui .team-card .tc-ovr b { color: var(--text); font-weight: 700; }
+.mad-ui .team-card .tc-ovr {
+  margin-top: auto; display: flex; flex-wrap: wrap; gap: 2px 8px;
+  font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+}
 .mad-ui .team-card.taken { opacity: 0.35; }
 .mad-ui .team-card.picked { border-color: var(--accent); }
 .mad-ui .ovr-elite { color: var(--accent) !important; }
@@ -266,6 +271,7 @@ export const UI_CSS = `
 .mad-ui .btn.focused { background: var(--accent); color: #10151d; border-color: var(--accent); }
 .mad-ui .btn.primary { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
 .mad-ui .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.mad-ui .btn-row .btn { font-size: 12px; letter-spacing: 0.1em; padding: 12px 10px; }
 
 /* --- tabs --------------------------------------------------------------- */
 
@@ -303,8 +309,16 @@ export const UI_CSS = `
 .mad-ui .keyref { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; }
 .mad-ui .keyref .k { font-family: var(--mono); color: var(--accent); }
 .mad-ui .keyref .v { color: var(--text-dim); }
-.mad-ui .danger.focused { outline-color: var(--bad); }
+/* The pulse animation sets outline-color, so a red focus ring needs its own
+   keyframes rather than a plain override. */
+.mad-ui .danger.focused { outline-color: var(--bad); animation-name: mad-pulse-danger; }
+@keyframes mad-pulse-danger {
+  0%, 100% { outline-color: var(--bad); }
+  50% { outline-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+}
+.mad-ui .btn.danger.focused { background: var(--panel-3); color: var(--bad); border-color: var(--bad); }
 .mad-ui .danger-armed { border-color: var(--bad); color: var(--bad); }
+.mad-ui .btn.danger-armed.focused { background: var(--bad); border-color: var(--bad); color: #17070a; }
 
 /* --- play call ---------------------------------------------------------- */
 
@@ -333,7 +347,10 @@ export const UI_CSS = `
 .mad-ui .situation .pc-clock { font-family: var(--mono); font-size: 22px; font-weight: 700; }
 .mad-ui .playclock { font-family: var(--mono); font-size: 22px; font-weight: 700; }
 .mad-ui .playclock.hot { color: var(--bad); animation: mad-blink 0.5s steps(2, start) infinite; }
-.mad-ui .coach-banner { color: var(--accent); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; }
+.mad-ui .coach-banner {
+  display: flex; gap: 16px; min-height: 15px;
+  color: var(--accent); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+}
 
 /* --- modals (pause / penalty) ------------------------------------------- */
 
@@ -345,6 +362,7 @@ export const UI_CSS = `
   padding: 20px 22px; display: flex; flex-direction: column; gap: 14px;
   box-shadow: 0 24px 80px rgba(0,0,0,0.65);
 }
+.mad-ui .modal .menu { width: 100%; }
 .mad-ui .modal-title { font-size: 18px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 700; }
 .mad-ui .modal-sub { font-size: 12px; color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase; }
 .mad-ui .choice-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

@@ -16,11 +16,6 @@ export const GAP_X: Record<GapId, number> = {
   'D-left': -7.4, 'D-right': 7.4,
 };
 
-/** -1 = offense's left, +1 = offense's right. */
-export function gapSide(gap: GapId): -1 | 1 {
-  return gap.endsWith('left') ? -1 : 1;
-}
-
 /** The two gaps immediately beside `gap`, innermost first. */
 export const GAP_ORDER: readonly GapId[] = [
   'D-left', 'C-left', 'B-left', 'A-left', 'A-right', 'B-right', 'C-right', 'D-right',
@@ -44,11 +39,6 @@ export function toWorldPoint(origin: Vec2, dx: number, dy: number, dir: Dir): Ve
   return { x: origin.x + dx * dir, y: origin.y + dy * dir };
 }
 
-/** World offset -> normalized offset (the transform is its own inverse). */
-export function toNormOffset(dx: number, dy: number, dir: Dir): Vec2 {
-  return { x: dx * dir, y: dy * dir };
-}
-
 /** Yards downfield of the line of scrimmage, positive = toward the defense. */
 export function depthYd(y: number, los: number, dir: Dir): number {
   return (y - los) * dir;
@@ -62,11 +52,6 @@ export function lateral(x: number, refX: number, dir: Dir): number {
 /** The goal line the offense is attacking. */
 export function targetGoalY(dir: Dir): number {
   return dir === 1 ? GOAL_AWAY_Y : GOAL_HOME_Y;
-}
-
-/** The goal line the offense is defending (its own). */
-export function ownGoalY(dir: Dir): number {
-  return dir === 1 ? GOAL_HOME_Y : GOAL_AWAY_Y;
 }
 
 // Sideline keep-out used by AI steering (players never aim outside this).

@@ -108,3 +108,24 @@ function clampX(x: number): number {
 export function isDeepZone(zone: ZoneName): boolean {
   return ZONES[zone].minDepth >= 10;
 }
+
+/**
+ * Landmark view in the shape src/sim/ai/coverage.ts declares locally
+ * (normalized offset x, depth past the LOS y, radius, minDepth) so the
+ * coverage AI can drop its placeholder table for this one.
+ */
+export interface ZoneLandmark {
+  x: number;
+  y: number;
+  radius: number;
+  minDepth: number;
+}
+
+export const ZONE_LANDMARKS: Record<ZoneName, ZoneLandmark> = (() => {
+  const out = {} as Record<ZoneName, ZoneLandmark>;
+  for (const name of ZONE_NAMES) {
+    const z = ZONES[name];
+    out[name] = { x: z.dx, y: z.depth, radius: z.radius, minDepth: z.minDepth };
+  }
+  return out;
+})();

@@ -3,9 +3,9 @@
 
 export * from './types';
 export {
-  LEAGUE_GEN, computeOverall, computeTeamRatings, computeTiers, findTeam,
-  generateLeague, athleteById, ovrTier, peakRating, seasonSeed, starterIds,
-  starterOvrs,
+  LEAGUE_GEN, RATING_KEYS, athleteById, computeOverall, computeTeamRatings,
+  computeTiers, findTeam, generateLeague, ovrTier, peakRating, seasonSeed,
+  starterIds, starterOvrs,
 } from './league';
 export type { TeamRatingSummary } from './league';
 export {
@@ -30,4 +30,3 @@ export {
   userGame, userGameResolved, weekComplete,
 } from './seasonState';
 export type { LeaderCategory, LeaderEntry, SeasonAwards } from './seasonState';
-export { TEAM_IDENTITIES } from './placeholderData';

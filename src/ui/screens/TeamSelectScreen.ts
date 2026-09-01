@@ -1,7 +1,7 @@
 import type { Team } from '../../meta/types';
 import { Screen, FocusRing, type FocusEntry } from '../Screen';
 import { append, applyAccent, clear, div, num, ratingBar, screenFrame, span } from '../dom';
-import { dirForCode, isBack, isConfirm } from '../focus';
+import { dirForCode, eventCode, isBack, isConfirm } from '../focus';
 import { ratingTier } from '../format';
 
 export interface TeamSelectOptions {
@@ -87,9 +87,9 @@ export class TeamSelectScreen extends Screen {
     const ovr = div('tc-ovr');
     append(
       ovr,
-      span(undefined, 'OVR '), span(`ovr-${ratingTier(team.ovr)}`, `${team.ovr}`),
-      span(undefined, ' OFF '), span(undefined, `${team.off}`),
-      span(undefined, ' DEF '), span(undefined, `${team.def}`),
+      span(`ovr-${ratingTier(team.ovr)}`, `OVR ${team.ovr}`),
+      span(undefined, `O ${team.off}`),
+      span(undefined, `D ${team.def}`),
     );
     card.appendChild(ovr);
     return card;
@@ -160,12 +160,13 @@ export class TeamSelectScreen extends Screen {
   }
 
   onKey(e: KeyboardEvent): boolean {
-    const dir = dirForCode(e.code);
+    const code = eventCode(e);
+    const dir = dirForCode(code);
     if (dir) {
       if (this.ring.move(dir)) this.blip('menuMove');
       return true;
     }
-    if (isConfirm(e.code)) {
+    if (isConfirm(code)) {
       const team = this.ordered[this.ring.index];
       if (!team) return true;
       const id = team.identity.id;
@@ -182,6 +183,7 @@ export class TeamSelectScreen extends Screen {
         this.picks.pop();
         this.markPicks();
         this.renderPrompt();
+        this.renderDetail();
         return true;
       }
       this.markPicks();
@@ -189,7 +191,7 @@ export class TeamSelectScreen extends Screen {
       this.renderDetail();
       return true;
     }
-    if (isBack(e.code)) {
+    if (isBack(code)) {
       this.blip('menuBack');
       if (this.picks.length > 0) {
         this.picks.pop();

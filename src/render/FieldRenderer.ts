@@ -26,15 +26,15 @@ export const FIELD_STYLE = {
   goalLineWidthYd: 0.3,
   hashLenYd: 0.62,
   sidelineTickLenYd: 1.0,
-  numberHeightYd: 4.2,
-  numberInsetYd: 9.0,
+  numberHeightYd: 3.0,
+  numberInsetYd: 8.0,
   endZoneTextMaxYd: 5.6,
-  midfieldDiscRadiusYd: 6.0,
+  midfieldDiscRadiusYd: 4.6,
   losColor: '#3FA9F5',
   firstDownColor: '#F2C744',
   situationLineWidthYd: 0.22,
-  /** Offscreen surface budget in device pixels. */
-  maxSurfacePixels: 12_000_000,
+  /** Offscreen surface budget in device pixels (~32MB of backing store). */
+  maxSurfacePixels: 8_000_000,
 } as const;
 
 export interface EndZoneTheme {
@@ -109,8 +109,8 @@ export function drawFieldTo(ctx: Ctx2D, ppy: number, theme: FieldTheme): void {
     ctx.fillRect(0, ly(y + 5), w, 5 * ppy);
   }
 
-  drawEndZone(ctx, ppy, theme.low, 0, GOAL_HOME_Y, -1);
-  drawEndZone(ctx, ppy, theme.high, GOAL_AWAY_Y, FIELD_L, 1);
+  drawEndZone(ctx, ppy, theme.low, 0, GOAL_HOME_Y);
+  drawEndZone(ctx, ppy, theme.high, GOAL_AWAY_Y, FIELD_L);
 
   ctx.globalAlpha = FIELD_STYLE.lineAlpha;
   ctx.strokeStyle = FIELD_STYLE.line;
@@ -164,7 +164,6 @@ function drawEndZone(
   zone: EndZoneTheme,
   y0: number,
   y1: number,
-  facing: 1 | -1,
 ): void {
   const w = FIELD_W * ppy;
   const top = (FIELD_L - y1) * ppy;
@@ -177,25 +176,25 @@ function drawEndZone(
   ctx.fillRect(0, top + h * 0.06, w, h * 0.06);
   ctx.fillRect(0, top + h * 0.88, w, h * 0.06);
 
+  // Text spans the field WIDTH (the 53-yard axis) so it stays readable in the
+  // vertical camera; its cap height is bounded by the 10-yard end zone depth.
   const text = zone.text;
   if (text.length === 0) return;
-  const maxLenYd = 44;
+  const maxLenYd = 46;
   const byHeight = FIELD_STYLE.endZoneTextMaxYd * ppy;
-  const byLength = (maxLenYd * ppy) / Math.max(1, text.length * 0.62);
+  const byLength = (maxLenYd * ppy) / Math.max(1, text.length * 0.68);
   const size = Math.max(4, Math.min(byHeight, byLength));
 
-  ctx.save();
-  ctx.translate((FIELD_W / 2) * ppy, (FIELD_L - (y0 + y1) / 2) * ppy);
-  ctx.rotate((facing === 1 ? 1 : -1) * (Math.PI / 2));
+  const cx = (FIELD_W / 2) * ppy;
+  const cy = (FIELD_L - (y0 + y1) / 2) * ppy;
   ctx.font = `bold ${size.toFixed(1)}px ${UI_FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = zone.textColor;
-  ctx.fillText(text, 0, 0);
+  ctx.fillText(text, cx, cy);
   ctx.lineWidth = Math.max(1, size * 0.045);
   ctx.strokeStyle = rgba('#000000', 0.35);
-  ctx.strokeText(text, 0, 0);
-  ctx.restore();
+  ctx.strokeText(text, cx, cy);
 }
 
 function drawYardNumbers(ctx: Ctx2D, ppy: number): void {

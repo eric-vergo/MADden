@@ -88,11 +88,15 @@ export interface SimExt {
   /** Circular buffer of carrier y over the forward-progress window. */
   progress: number[];
   progressCount: number;
+  /** Player index the progress window belongs to. */
+  progressCarrier: number;
   /** Events emitted during the current play (stats consume these). */
   playEvents: SimEvent[];
   /** Tick a wrap-tackle finishes the runner, or -1. */
   dragUntilTick: number;
   fairCatchCalled: boolean;
+  /** User RETURN_DECISION: kneel the kick in the end zone. */
+  returnKneel: boolean;
   ballRestTicks: number;
   kick: KickPlan | null;
   meshDone: boolean;
@@ -111,6 +115,10 @@ export interface SimExt {
   completed: boolean;
   /** Index of the most recent ball carrier (survives a tackle). */
   lastCarrierIdx: number;
+  /** Set when the ending site already knows the exact dead-ball spot. */
+  spotFixed: boolean;
+  /** A kick is still untouched by the receiving team. */
+  kickUntouched: boolean;
   outcome: PlayOutcome | null;
   afterDead: GamePhase | null;
   patTwo: boolean;
@@ -143,9 +151,11 @@ function freshExt(s: GameState): SimExt {
     whistleTick: -1,
     progress: [],
     progressCount: 0,
+    progressCarrier: -1,
     playEvents: [],
     dragUntilTick: -1,
     fairCatchCalled: false,
+    returnKneel: false,
     ballRestTicks: 0,
     kick: null,
     meshDone: false,
@@ -161,6 +171,8 @@ function freshExt(s: GameState): SimExt {
     tipUsed: false,
     completed: false,
     lastCarrierIdx: -1,
+    spotFixed: false,
+    kickUntouched: true,
     outcome: null,
     afterDead: null,
     patTwo: false,
@@ -209,9 +221,11 @@ export function resetPlayScratch(s: GameState): void {
   const e = ext(s);
   e.progress = [];
   e.progressCount = 0;
+  e.progressCarrier = -1;
   e.playEvents = [];
   e.dragUntilTick = -1;
   e.fairCatchCalled = false;
+  e.returnKneel = false;
   e.ballRestTicks = 0;
   e.kick = null;
   e.meshDone = false;
@@ -231,4 +245,6 @@ export function resetPlayScratch(s: GameState): void {
   e.tipUsed = false;
   e.completed = false;
   e.lastCarrierIdx = -1;
+  e.spotFixed = false;
+  e.kickUntouched = true;
 }

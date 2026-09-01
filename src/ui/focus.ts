@@ -144,6 +144,31 @@ export function moveSkippingDisabled(
 // back, Q/E cycle tabs. Digit keys are surfaced raw for screens that want them.
 // ---------------------------------------------------------------------------
 
+/**
+ * KeyboardEvent.code, with a fallback derived from .key. Physical keyboards
+ * always populate `code`, but synthetic events (automation, some IMEs and
+ * on-screen keyboards) often only carry `key`.
+ */
+export function eventCode(e: { code?: string; key?: string }): string {
+  if (e.code !== undefined && e.code !== '') return e.code;
+  const key = e.key ?? '';
+  if (key === ' ' || key === 'Spacebar') return 'Space';
+  if (key.length === 1) {
+    const upper = key.toUpperCase();
+    if (upper >= 'A' && upper <= 'Z') return `Key${upper}`;
+    if (key >= '0' && key <= '9') return `Digit${key}`;
+    return '';
+  }
+  switch (key) {
+    case 'ArrowUp': case 'ArrowDown': case 'ArrowLeft': case 'ArrowRight':
+    case 'Enter': case 'Escape': case 'Backspace': case 'Tab':
+    case 'Home': case 'End':
+      return key;
+    default:
+      return '';
+  }
+}
+
 export function dirForCode(code: string): FocusDir | null {
   switch (code) {
     case 'ArrowUp': case 'KeyW': return 'up';

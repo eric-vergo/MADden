@@ -17,15 +17,15 @@ export const QUICK_SIM = {
    * The raw §5 coefficients make a +10 OVR team win ~93% of games, well past
    * CALIBRATION.ovrEdge10WinRateMax; this brings it inside the 70–85% band.
    */
-  edgeScale: 0.52,
+  edgeScale: 0.60,
   formSigma: 4, homeFieldEdge: 1.5,
-  tdBase: 0.215, tdPerEdge: 0.011, tdMin: 0.04, tdMax: 0.48,
-  fgBase: 0.17, fgPerEdge: 0.003, fgMin: 0.08, fgMax: 0.24,
+  tdBase: 0.225, tdPerEdge: 0.011, tdMin: 0.04, tdMax: 0.48,
+  fgBase: 0.18, fgPerEdge: 0.003, fgMin: 0.08, fgMax: 0.24,
   toBase: 0.11, toPerEdge: 0.004, toMin: 0.04, toMax: 0.20,
-  ydsTd: 62, ydsTdSigma: 12, ydsTdMin: 25,
-  ydsFg: 48, ydsFgSigma: 14,
-  ydsTo: 16, ydsToSigma: 12,
-  ydsPunt: 20, ydsPuntSigma: 13,
+  ydsTd: 57, ydsTdSigma: 12, ydsTdMin: 25,
+  ydsFg: 46, ydsFgSigma: 14,
+  ydsTo: 14, ydsToSigma: 12,
+  ydsPunt: 17, ydsPuntSigma: 13,
   xpMissChance: 0.02,
   fgMaxDist: 56,
   otEdgePerPoint: 0.02, otWinMin: 0.25, otWinMax: 0.75,

@@ -39,15 +39,13 @@ export interface PlayDiagram {
 
 export interface DiagramOptions {
   padding?: number;
-  /** Fraction of the height the line of scrimmage sits at (0 = top). */
-  losFraction?: number;
 }
 
 // TODO(balance): purely cosmetic diagram framing constants.
 const DEFAULT_PADDING = 4;
-const DEFAULT_LOS_FRACTION = 0.62;
 const MIN_X_SPAN = 26; // yards — keeps tight formations from ballooning
 const MIN_Y_SPAN = 16;
+const ASPECT_MAX = 1.6; // vertical yards may be drawn at most this much longer
 const BLOCK_STUB_YD = 1.6;
 
 const LINE_ROLES: ReadonlySet<string> = new Set(['LT', 'LG', 'C', 'RG', 'RT']);
@@ -150,7 +148,6 @@ export function buildPlayDiagram(
   opts: DiagramOptions = {},
 ): PlayDiagram {
   const pad = opts.padding ?? DEFAULT_PADDING;
-  const losFrac = opts.losFraction ?? DEFAULT_LOS_FRACTION;
   const alignments = formation?.alignments ?? {};
 
   const roles = (Object.keys(play.assignments) as RoleId[]).sort();
@@ -176,13 +173,25 @@ export function buildPlayDiagram(
   for (const d of rawDots) visit(d.p);
   for (const path of rawPaths) for (const p of path.pts) visit(p);
 
+  // Always leave a little air in front of and behind the ball.
+  const lowY = Math.min(minY, -3);
+  const highY = Math.max(maxY, 4);
   const halfX = Math.max(MIN_X_SPAN / 2, Math.abs(minX), Math.abs(maxX));
-  const spanY = Math.max(MIN_Y_SPAN, maxY - minY);
+  const spanY = Math.max(MIN_Y_SPAN, highY - lowY);
   const usableW = Math.max(1, width - pad * 2);
   const usableH = Math.max(1, height - pad * 2);
+  // Fit the width, then stretch the depth to use the card — but only up to
+  // ASPECT_MAX, so a slant still reads as a slant rather than a go route.
   const sx = usableW / (halfX * 2);
-  const sy = usableH / spanY;
-  const losY = pad + usableH * losFrac;
+  const sy = Math.min(usableH / spanY, sx * ASPECT_MAX);
+  // Anchor the line of scrimmage so the FULL y-range fits (deep routes must not
+  // clip at the top edge) and the drawing sits centred in the card.
+  const slack = (spanY - (highY - lowY)) / 2;
+  const losY = clamp(
+    pad + (usableH - spanY * sy) / 2 + (highY + slack) * sy,
+    pad,
+    height - pad,
+  );
   const cx = width / 2;
 
   const toCanvas = (p: Vec2): Vec2 => ({

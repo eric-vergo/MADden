@@ -25,7 +25,8 @@ export const PURSUIT_AI = {
   cutoffBaseLeadYd: 2.0, cutoffPerRankYd: 1.5,
   angleNoiseRefreshTicks: 20,
   tackleCooldownTicks: 8,
-  behindDotThreshold: -0.3,
+  /** dot(carrierHeading, carrier→tackler) above this = chasing from behind. */
+  behindDotThreshold: 0.3,
   frontalArcDot: 0.0,
   /** A QB this far outside the pocket counts as a runner. */
   scrambleTriggerYd: 3.0,
@@ -256,7 +257,7 @@ function pursuitRank(ctx: AiCtx, i: number, carrier: SimPlayer): number {
   if (!me) return 99;
   const myD = dist(me.pos2, carrier.pos2);
   let rank = 0;
-  for (let di = DEFENSE_LO; di <= DEFENSE_HI; di++) {
+  for (let di = 0; di < ctx.players.length; di++) {
     if (di === i) continue;
     const d = ctx.players[di];
     if (!d || isIncapacitated(d) || d.team !== me.team) continue;
@@ -322,7 +323,8 @@ export function maybeTackle(ctx: AiCtx, i: number): boolean {
   if (d < 1e-6) return false;
   const dirToCarrier = { x: toCarrier.x / d, y: toCarrier.y / d };
   const carrierHeading = len(c.vel) > 0.5 ? norm(c.vel) : { x: 0, y: ctx.dir };
-  const fromBehind = dot(carrierHeading, dirToCarrier) < PURSUIT_AI.behindDotThreshold;
+  // The tackler trails the runner when he sits along the runner's heading.
+  const fromBehind = dot(carrierHeading, dirToCarrier) > PURSUIT_AI.behindDotThreshold;
   const range = fromBehind ? TACKLE.behindRangeYd : TACKLE.attemptRangeYd;
   if (d > range) return false;
 

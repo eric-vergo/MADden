@@ -3,9 +3,9 @@
 
 import type { Route, RouteWaypoint, SimPlayer, Vec2 } from '../types';
 import { TICK_DT } from '../constants';
-import { COVERAGE } from '../../data/balance';
+import { COVERAGE, MOVE } from '../../data/balance';
 import { maxSpeed } from '../physics/movement';
-import { dist, len, norm, sub } from '../vec';
+import { dist, dot, len, norm, sub } from '../vec';
 import {
   DEFENSE_HI, DEFENSE_LO, isIncapacitated, mindGet, mindSet, type AiCtx,
 } from './context';
@@ -18,8 +18,12 @@ import { blockNearestThreat } from './blocking';
 export const ROUTE_AI = {
   sharpArriveYd: 0.7,
   roundedArriveYd: 1.5,
-  /** Deceleration window before a sharp break (scaled down by AGI). */
-  breakWindowBaseYd: 1.4, breakWindowAgiYd: 0.4,
+  /** A waypoint counts as reached once it is behind us inside this radius. */
+  passedWaypointYd: 2.0,
+  finalArriveYd: 1.6,
+  /** Braking-distance multiplier before a sharp break (AGI shortens it). */
+  breakWindowBaseYd: 1.25, breakWindowAgiYd: 0.35,
+  breakWindowMinYd: 0.5,
   breakSpeedCap: 4.0,
   minPacedSpeed: 1.2,
   settleDriftSpeed: 1.0,
@@ -69,10 +73,21 @@ export function updateRoute(ctx: AiCtx, i: number): void {
 
   const wp = wps[wi] as RouteWaypoint;
   const target = toWorldPoint(align, wp.dx, wp.dy, ctx.dir);
-  const d = dist(p.pos2, target);
-  const arriveR = wp.breakStyle === 'sharp' ? ROUTE_AI.sharpArriveYd : ROUTE_AI.roundedArriveYd;
+  const toTarget = sub(target, p.pos2);
+  const d = len(toTarget);
+  // The end of a route is "reached" generously: a receiver who has run
+  // through his last break is done, and chasing the exact point wastes ticks.
+  const isLast = wi === wps.length - 1;
+  const arriveR = isLast
+    ? ROUTE_AI.finalArriveYd
+    : (wp.breakStyle === 'sharp' ? ROUTE_AI.sharpArriveYd : ROUTE_AI.roundedArriveYd);
+  // Also advance once the waypoint is behind us: closing the last few inches
+  // exactly is both slow and pointless.
+  const passed = d < ROUTE_AI.passedWaypointYd
+    && len(p.vel) > 0.5
+    && dot(toTarget, p.vel) <= 0;
 
-  if (d <= arriveR) {
+  if (d <= arriveR || passed) {
     wi += 1;
     mindSet(p, MIND_WP, wi);
     if (wi >= wps.length) { mindSet(p, MIND_DONE, 1); finishRoute(ctx, i, route); return; }
@@ -88,7 +103,12 @@ export function updateRoute(ctx: AiCtx, i: number): void {
     cap = Math.min(cap, Math.max(curDist / remainSec, ROUTE_AI.minPacedSpeed));
   }
   if (cur.breakStyle === 'sharp' && wi + 1 < wps.length) {
-    const window = ROUTE_AI.breakWindowBaseYd - ROUTE_AI.breakWindowAgiYd * (p.ratings.agi / 99);
+    // Start braking far enough out to actually be at breakSpeedCap on the
+    // break; a higher AGI needs less room (design §10).
+    const v = len(p.vel);
+    const need = Math.max(0, v * v - ROUTE_AI.breakSpeedCap ** 2) / (2 * MOVE.aBrake);
+    const window = need * (ROUTE_AI.breakWindowBaseYd - ROUTE_AI.breakWindowAgiYd * (p.ratings.agi / 99))
+      + ROUTE_AI.breakWindowMinYd;
     if (curDist < window) cap = Math.min(cap, ROUTE_AI.breakSpeedCap);
   }
 

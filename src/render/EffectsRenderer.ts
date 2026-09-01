@@ -343,7 +343,7 @@ export class EffectsRenderer {
     const bg = team ? team.colors.primary : tone.bg;
     const fg = team ? readableOn(team.colors.primary) : tone.fg;
     const h = tone.height * s;
-    const y = cam.heightCss * 0.3 - h / 2;
+    const y = cam.heightCss * 0.24 - h / 2;
 
     const inT = clamp(age / EFFECT_STYLE.bannerInTicks, 0, 1);
     const outAge = age - (EFFECT_STYLE.bannerTicks - EFFECT_STYLE.bannerOutTicks);

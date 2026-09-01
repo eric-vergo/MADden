@@ -2,7 +2,8 @@
 
 import type { GameState, TeamSide } from '../types';
 import {
-  KICKOFF_SPOT_FROM_OWN_GOAL, TWO_POINT_FROM_GOAL_YD, XP_SNAP_FROM_GOAL_YD,
+  KICKOFF_SPOT_FROM_OWN_GOAL, TOUCHBACK_KICKOFF_YD, TOUCHBACK_OTHER_YD,
+  TWO_POINT_FROM_GOAL_YD, XP_SNAP_FROM_GOAL_YD,
 } from '../constants';
 import { oppYardLineY, ownYardLineY, type Dir } from '../transform';
 import { freshToGo, otherTeam } from './downs';
@@ -71,6 +72,20 @@ export function setupPat(s: GameState, scoringTeam: TeamSide, two: boolean): voi
   s.clockRunning = false;
   ext(s).startClockOnSnap = false;
   ext(s).patTwo = two;
+}
+
+/**
+ * A missed field goal gives the opponent the ball at the spot of the kick, or
+ * their own 20 — whichever is further from their goal line.
+ */
+export function missedFieldGoalSpot(kickSpotY: number, oppDir: Dir): number {
+  const own20 = ownYardLineY(TOUCHBACK_OTHER_YD, oppDir);
+  return (kickSpotY - own20) * oppDir > 0 ? kickSpotY : own20;
+}
+
+/** Touchback spot for the receiving team. */
+export function touchbackSpot(style: 'kickoff' | 'punt', recvDir: Dir): number {
+  return ownYardLineY(style === 'kickoff' ? TOUCHBACK_KICKOFF_YD : TOUCHBACK_OTHER_YD, recvDir);
 }
 
 /**

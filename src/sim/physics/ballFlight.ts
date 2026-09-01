@@ -12,8 +12,8 @@ export interface Launch {
   timeSec: number;
 }
 
-const RELEASE_Z = 1.9; // ball leaves the QB's hand about here
-const CATCH_Z = 1.5;
+const RELEASE_Z = 1.9; // TODO(balance) ball leaves the QB's hand about here
+const CATCH_Z = 1.5; // TODO(balance)
 
 export function bulletSpeed(thp: number): number {
   return PASS.bulletSpeedBase + PASS.bulletSpeedPerThp * (thp / 99);
@@ -95,9 +95,9 @@ export function timeToHeight(ball: Ball, z: number): number | null {
   return cands.length > 0 ? (cands[0] as number) : null;
 }
 
-export const BOUNCE_RESTITUTION = 0.35;
-export const BOUNCE_FRICTION = 0.55;
-export const REST_SPEED = 0.45;
+export const BOUNCE_RESTITUTION = 0.35; // TODO(balance)
+export const BOUNCE_FRICTION = 0.55; // TODO(balance)
+export const REST_SPEED = 0.45; // TODO(balance)
 
 export interface BallStepResult {
   /** The ball touched the ground on this tick. */

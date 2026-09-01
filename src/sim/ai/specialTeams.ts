@@ -6,12 +6,9 @@ import type { SimPlayer, Vec2 } from '../types';
 import { FIELD_W, TICK_HZ } from '../constants';
 import { KICK } from '../../data/balance';
 import { callFairCatch, pressKickMeter } from '../actions';
-import { dist, len } from '../vec';
+import { dist } from '../vec';
 import { maxSpeed } from '../physics/movement';
-import {
-  DEFENSE_HI, DEFENSE_LO, OFFENSE_HI, OFFENSE_LO,
-  isIncapacitated, mindGet, mindSet, type AiCtx,
-} from './context';
+import { isIncapacitated, mindGet, mindSet, type AiCtx } from './context';
 import { clampFieldPoint, clampFieldX, targetGoalY } from './frame';
 import { applyMove, arrive, faceToward, interceptBall, predictLanding, seek, ticksToCover } from './steering';
 import { blockNearestThreat } from './blocking';
@@ -180,7 +177,7 @@ export function updateReturnBlock(ctx: AiCtx, i: number): void {
   if (live || !returner) { blockNearestThreat(ctx, i); return; }
 
   // Set the wedge in front of the returner while the ball is in the air.
-  const wedgeY = returner.pos2.y - ST_AI.wedgeDepthYd * ctx.dir * -1;
+  const wedgeY = returner.pos2.y - ST_AI.wedgeDepthYd * ctx.dir;
   const spot: Vec2 = { x: p.pos2.x, y: wedgeY };
   const nearestCover = nearestCoverageMan(ctx, i);
   if (nearestCover >= 0) {
@@ -237,7 +234,8 @@ export function updateReturner(ctx: AiCtx, i: number): void {
   // Our own goal line is the one the kicking team is attacking.
   const ourGoalY = targetGoalY(ctx.dir);
   const landDepthFromGoal = Math.abs(land.pos.y - ourGoalY);
-  const inEndZone = (ourGoalY - land.pos.y) * ctx.dir > 0;
+  // Past our own goal line (the one the kicking team is attacking).
+  const inEndZone = (land.pos.y - ourGoalY) * ctx.dir > 0;
 
   if (inEndZone) {
     mindSet(p, MIND_RETURN_DECISION, 2);
@@ -271,6 +269,4 @@ export function updateReturner(ctx: AiCtx, i: number): void {
   applyMove(ctx, i, seek(p, clampFieldPoint(sol.point)), { sprinting: true });
   faceToward(p, ctx.ball.pos2);
   p.anim = 'catching';
-  void len;
-  void OFFENSE_LO; void OFFENSE_HI; void DEFENSE_LO; void DEFENSE_HI;
 }

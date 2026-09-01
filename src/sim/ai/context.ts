@@ -57,10 +57,6 @@ export function mindSet(p: SimPlayer, key: string, value: number): void {
   p.mind[key] = value;
 }
 
-export function mindBump(p: SimPlayer, key: string, by: number): void {
-  p.mind[key] = mindGet(p, key) + by;
-}
-
 export function makeCtx(
   state: GameState,
   rng: Rng,
@@ -107,11 +103,6 @@ export function isIncapacitated(p: SimPlayer): boolean {
   return p.stateTimer > 0 && (p.anim === 'down' || p.anim === 'stumbling' || p.anim === 'diving');
 }
 
-/** Downfield depth of a player relative to the LOS (+ = defensive side). */
-export function depthOf(ctx: AiCtx, p: SimPlayer): number {
-  return depthYd(p.pos2.y, ctx.los, ctx.dir);
-}
-
 /** Nearest player on the opposite team; returns idx -1 when none. */
 export function nearestOpponentTo(
   ctx: AiCtx,
@@ -125,25 +116,6 @@ export function nearestOpponentTo(
     if (i === skipIdx) continue;
     const q = ctx.players[i];
     if (!q || q.team === team || isIncapacitated(q)) continue;
-    const d = dist(pos, q.pos2);
-    if (d < bestD) { bestD = d; best = i; }
-  }
-  return { idx: best, d: bestD };
-}
-
-/** Nearest teammate (excluding self). */
-export function nearestTeammateTo(
-  ctx: AiCtx,
-  pos: Vec2,
-  team: TeamSide,
-  skipIdx = -1,
-): { idx: number; d: number } {
-  let best = -1;
-  let bestD = Infinity;
-  for (let i = 0; i < ctx.players.length; i++) {
-    if (i === skipIdx) continue;
-    const q = ctx.players[i];
-    if (!q || q.team !== team || isIncapacitated(q)) continue;
     const d = dist(pos, q.pos2);
     if (d < bestD) { bestD = d; best = i; }
   }
@@ -188,13 +160,6 @@ export function declaredRushers(ctx: AiCtx): number[] {
     if (kind === 'rush' || kind === 'blitz') out.push(i);
   }
   return out;
-}
-
-export function isDefAssignment(a: OffAssignment | DefAssignment | { kind: string }): boolean {
-  const k = a.kind;
-  return k === 'man' || k === 'zone' || k === 'rush' || k === 'blitz'
-    || k === 'spy' || k === 'runFit' || k === 'coverLane' || k === 'returner'
-    || k === 'returnBlock';
 }
 
 /** Coverage rating a defender applies to the ball, by his current job. */

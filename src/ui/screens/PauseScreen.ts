@@ -1,6 +1,6 @@
 import { Screen, FocusRing, type FocusEntry } from '../Screen';
 import { append, div, span } from '../dom';
-import { dirForCode, isBack, isConfirm } from '../focus';
+import { dirForCode, eventCode, isBack, isConfirm } from '../focus';
 import { SettingsScreen } from './SettingsScreen';
 
 interface PauseAction {
@@ -104,13 +104,14 @@ export class PauseScreen extends Screen {
   }
 
   onKey(e: KeyboardEvent): boolean {
-    const dir = dirForCode(e.code);
+    const code = eventCode(e);
+    const dir = dirForCode(code);
     if (dir) {
       this.disarm();
       if (this.ring.move(dir)) this.blip('menuMove');
       return true;
     }
-    if (isConfirm(e.code)) {
+    if (isConfirm(code)) {
       const key = this.ring.currentKey();
       const entry = this.ring.current();
       const action = this.actions.find((a) => a.key === key);
@@ -122,7 +123,7 @@ export class PauseScreen extends Screen {
       action.run();
       return true;
     }
-    if (isBack(e.code)) {
+    if (isBack(code)) {
       this.blip('menuBack');
       if (this.disarm()) return true;
       this.resume();

@@ -6,6 +6,7 @@
 
 import type { Screen } from './Screen';
 import type { UiServices } from './UiServices';
+import { eventCode } from './focus';
 import { injectStyles } from './styles';
 
 const SCROLL_KEYS: ReadonlySet<string> = new Set([
@@ -123,7 +124,7 @@ export class ScreenManager {
     const top = this.top;
     if (!top) return false;
     const handled = top.onKey(e);
-    if (handled || SCROLL_KEYS.has(e.code)) e.preventDefault();
+    if (handled || SCROLL_KEYS.has(eventCode(e))) e.preventDefault();
     return handled;
   }
 

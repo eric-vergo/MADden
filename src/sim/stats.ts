@@ -87,6 +87,15 @@ export function accumulatePlay(
         const rs = statsFor(stats, play, ev.receiverIdx);
         const catcher = play.players[ev.receiverIdx];
         if (rs !== null && catcher !== undefined && catcher.team === offense) {
+          // The credited target follows the ball: if someone other than the
+          // intended man came down with it, the target moves to him so that
+          // receptions never exceed targets.
+          if (targetIdx !== null && targetIdx !== ev.receiverIdx) {
+            const old = statsFor(stats, play, targetIdx);
+            if (old !== null && old.tgt > 0) old.tgt -= 1;
+            rs.tgt += 1;
+            targetIdx = ev.receiverIdx;
+          }
           rs.rec += 1;
           completed = true;
           const ps = statsFor(stats, play, passerIdx);

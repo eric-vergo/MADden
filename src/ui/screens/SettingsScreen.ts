@@ -2,7 +2,7 @@ import type { Difficulty } from '../../sim/types';
 import type { SettingsSave } from '../../save/schemas';
 import { Screen, FocusRing, type FocusEntry } from '../Screen';
 import { append, div, screenFrame, span } from '../dom';
-import { dirForCode, isBack, isConfirm } from '../focus';
+import { dirForCode, eventCode, isBack, isConfirm } from '../focus';
 import { DIFFICULTY_LABEL } from '../format';
 
 const LEVELS: readonly Difficulty[] = ['rookie', 'pro', 'allPro', 'allMadden'];
@@ -193,7 +193,8 @@ export class SettingsScreen extends Screen {
   }
 
   onKey(e: KeyboardEvent): boolean {
-    const dir = dirForCode(e.code);
+    const code = eventCode(e);
+    const dir = dirForCode(code);
     if (dir === 'up' || dir === 'down') {
       this.disarmReset();
       if (this.ring.move(dir)) this.blip('menuMove');
@@ -209,13 +210,13 @@ export class SettingsScreen extends Screen {
       }
       return true;
     }
-    if (isConfirm(e.code)) {
+    if (isConfirm(code)) {
       const row = this.rows[this.ring.index];
       if (row?.confirm) row.confirm();
       else this.blip('menuMove');
       return true;
     }
-    if (isBack(e.code)) {
+    if (isBack(code)) {
       this.blip('menuBack');
       if (this.disarmReset()) return true;
       this.persist();

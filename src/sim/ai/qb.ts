@@ -5,14 +5,14 @@ import type { RoleId, SimPlayer, Vec2 } from '../types';
 import { PASS, QB_AI } from '../../data/balance';
 import { TICK_HZ } from '../constants';
 import { throwAway, throwPass } from '../actions';
-import { dist, len, norm, sub } from '../vec';
+import { dist, norm, sub } from '../vec';
 import { maxSpeed } from '../physics/movement';
 import {
   DEFENSE_HI, DEFENSE_LO, OFFENSE_HI, OFFENSE_LO,
   indexOfRole, isIncapacitated, mindGet, mindSet, type AiCtx,
 } from './context';
 import { alignmentOf } from './memory';
-import { clampFieldPoint, depthYd, lateral } from './frame';
+import { clampFieldPoint, lateral } from './frame';
 import { applyMove, arrive, faceToward, ticksToCover } from './steering';
 import { updateCarrier } from './carrier';
 
@@ -221,7 +221,7 @@ function outsideTackleBox(ctx: AiCtx, qb: SimPlayer): boolean {
 function escapeSide(ctx: AiCtx, qb: SimPlayer): -1 | 0 | 1 {
   const sides: Array<-1 | 1> = [-1, 1];
   let bestSide: -1 | 0 | 1 = 0;
-  let bestClear = QB_AI.scrambleLaneClearYd;
+  let bestClear: number = QB_AI.scrambleLaneClearYd;
   for (const s of sides) {
     const probe: Vec2 = {
       x: qb.pos2.x + s * QB_BRAIN.scrambleProbeYd * ctx.dir,
@@ -389,5 +389,4 @@ function clearOut(ctx: AiCtx, i: number): void {
   const target: Vec2 = { x: p.pos2.x, y: p.pos2.y - 1.5 * ctx.dir };
   applyMove(ctx, i, arrive(p, clampFieldPoint(target), 2.0, maxSpeed(p) * 0.4));
   p.anim = 'idle';
-  void len;
 }

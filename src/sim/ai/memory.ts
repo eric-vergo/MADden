@@ -27,15 +27,3 @@ export function alignmentOf(p: SimPlayer): Vec2 {
 export function hasAlignment(p: SimPlayer): boolean {
   return mindGet(p, MIND_ALIGNED) === 1;
 }
-
-/**
- * Clear every brain's scratch for a new play, keeping the key set stable so
- * writes always happen in the same order.
- */
-export function resetMind(p: SimPlayer): void {
-  const keys = Object.keys(p.mind).sort();
-  for (const k of keys) {
-    if (k === MIND_ALIGN_X || k === MIND_ALIGN_Y || k === MIND_ALIGNED) continue;
-    delete p.mind[k];
-  }
-}
