@@ -1,0 +1,25 @@
+name: Balance Soak
+
+# Heavy statistical gameplay tests — only worth running when gameplay
+# code or tuning changes, or on demand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/sim/**'
+      - 'src/data/**'
+      - 'tests/soak*.ts'
+      - 'tests/harness/**'
+  workflow_dispatch:
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:soak
