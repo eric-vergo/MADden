@@ -2,7 +2,9 @@
 // SCRAMBLE / THROWAWAY, with difficulty-driven dwell, thresholds and lead error.
 
 import type { RoleId, SimPlayer, Vec2 } from '../types';
-import { PASS, QB_AI } from '../../data/balance';
+import { PASS, QB_AI, QB_BRAIN } from '../../data/balance';
+
+export { QB_BRAIN };
 import { TICK_HZ } from '../constants';
 import { throwAway, throwPass } from '../actions';
 import { dist, norm, sub } from '../vec';
@@ -25,21 +27,6 @@ export const QB_STATE = {
   DONE: 5,
 } as const;
 
-// TODO(balance): QB brain tunables not present in balance.QB_AI.
-export const QB_BRAIN = {
-  dropTicks: { '1step': 8, '3step': 18, '5step': 28, gunSet: 14, bootLeft: 30, bootRight: 30, sneak: 0, kneel: 0, spike: 0 } as Record<string, number>,
-  bootLateralYd: 7,
-  /** A zone defender who beats the ball by more than this kills the read. */
-  deadReadTicks: 6,
-  breakingAwayBonusYd: 0.5,
-  bulletMaxAirYd: 18,
-  bulletTightWindowYd: 3.0,
-  tackleBoxHalfWidthYd: 6.5,
-  scrambleProbeYd: 4.0,
-  pocketDriftSpeed: 2.0,
-  /** How long the QB rides the mesh fake before drifting clear. */
-  meshClearTicks: 8,
-} as const;
 
 const MIND_STATE = 'qbState';
 const MIND_READ = 'qbRead';
@@ -112,7 +99,12 @@ export interface Openness {
   flightTicks: number;
 }
 
-/** Separation at the projected catch point, with the zone dead-read check. */
+/**
+ * EFFECTIVE separation at the projected catch point: how much room the
+ * receiver still owns once every defender has closed for the ball's flight
+ * time. Raw distance flatters a receiver with a big cushion — the corner
+ * driving downhill on the throw is exactly why that window is not open.
+ */
 export function opennessOf(ctx: AiCtx, qbIdx: number, recIdx: number): Openness {
   const qb = ctx.players[qbIdx] as SimPlayer;
   const rec = ctx.players[recIdx];
@@ -134,7 +126,12 @@ export function opennessOf(ctx: AiCtx, qbIdx: number, recIdx: number): Openness 
     const d = ctx.players[di];
     if (!d || isIncapacitated(d)) continue;
     const dd = dist(d.pos2, catchPoint);
-    if (dd < sep) { sep = dd; nearest = d; }
+    // Ground he can make up in the air, discounted for reaction and angle.
+    const reach = d.engagedWith === null
+      ? maxSpeed(d, { sprinting: true }) * flightSec * QB_AI.readClosingFrac
+      : 0;
+    const eff = dd - reach;
+    if (eff < sep) { sep = eff; nearest = d; }
     if (d.assignment.kind === 'zone') {
       const defTicks = ticksToCover(d, dd);
       if (defTicks + QB_BRAIN.deadReadTicks < flightTicks) dead = true;
@@ -211,6 +208,27 @@ function throwTo(ctx: AiCtx, i: number, targetIdx: number, sep: number): void {
     ctx.rng,
     ctx.events,
   );
+}
+
+/** Widest window among the progression plus the outlet, however bad. */
+function bestAvailableRead(
+  ctx: AiCtx,
+  qbIdx: number,
+  progression: number[],
+  checkdown: number,
+): { idx: number; sep: number } {
+  let bestIdx = -1;
+  let bestSep = -Infinity;
+  for (const tgt of progression) {
+    const open = opennessOf(ctx, qbIdx, tgt);
+    if (open.dead) continue;
+    if (open.sep > bestSep) { bestSep = open.sep; bestIdx = tgt; }
+  }
+  if (checkdown >= 0) {
+    const open = opennessOf(ctx, qbIdx, checkdown);
+    if (!open.dead && open.sep > bestSep) { bestSep = open.sep; bestIdx = checkdown; }
+  }
+  return { idx: bestIdx, sep: bestSep };
 }
 
 function outsideTackleBox(ctx: AiCtx, qb: SimPlayer): boolean {
@@ -319,6 +337,12 @@ export function updateQb(ctx: AiCtx, i: number): void {
     mindSet(p, MIND_STATE, QB_STATE.READING);
     pocketWork(ctx, i, press);
     return;
+  }
+  // Nothing has come open twice through: put it on the best body available
+  // rather than standing there. Sails, contested balls and picks live here.
+  if (mindGet(p, MIND_RESCAN) === 1 && held >= QB_AI.forcedThrowTicks) {
+    const forced = bestAvailableRead(ctx, i, progression, cd);
+    if (forced.idx >= 0) { throwTo(ctx, i, forced.idx, forced.sep); return; }
   }
   if (
     mindGet(p, MIND_RESCAN) === 1

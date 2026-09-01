@@ -7,18 +7,13 @@
 import type { GameState, PenaltyFlag, PlayState, SimPlayer, Vec2 } from './types';
 import type { SimEvent } from './events';
 import type { Rng } from './rng';
-import { MOVES, PASS, PENALTY, QB_AI, TACKLE } from '../data/balance';
+import { MOVES, PASS, PENALTY, PLAY_TIMING, QB_AI, TACKLE } from '../data/balance';
 import { ext } from './rules/ext';
 import { bulletLaunch, lobLaunch, RELEASE_Z } from './physics/ballFlight';
 import { closingSpeed, isFromBehind } from './physics/collisions';
 import { press as pressMeter } from './rules/kickMeter';
 
 export type CarrierMove = 'juke' | 'spin' | 'stiffArm' | 'truck' | 'dive' | 'slide';
-
-/** Half-width of the tackle box; a throwaway outside it is legal. */
-const TACKLE_BOX_HALF_WIDTH = 9; // TODO(balance)
-/** Ticks a dive lunge stays live before the runner is down. */
-const DIVE_TICKS = 15; // TODO(balance)
 
 function live(state: GameState): PlayState | null {
   const p = state.play;
@@ -165,7 +160,7 @@ export function throwAway(
   if (passer === null || !passer.hasBall) return;
   const e = ext(state);
   // [SIMPLE-BY-CHOICE] legal only outside the tackle box; no grounding foul.
-  if (Math.abs(passer.pos2.x - e.ballOnX) <= TACKLE_BOX_HALF_WIDTH) return;
+  if (Math.abs(passer.pos2.x - e.ballOnX) <= PLAY_TIMING.tackleBoxHalfWidthYd) return;
 
   const dir = state.attackDir[passer.team];
   const toLeft = passer.pos2.x < e.ballOnX;
@@ -391,7 +386,7 @@ export function tryCarrierMove(
         c.vel.y *= k;
       }
       c.anim = 'diving';
-      c.mind['diveUntil'] = state.tick + DIVE_TICKS;
+      c.mind['diveUntil'] = state.tick + PLAY_TIMING.diveTicks;
       break;
     }
     case 'slide':

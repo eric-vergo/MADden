@@ -1,30 +1,30 @@
-// Bootstrap stub — replaced by the real App wiring in the integration phase.
+// Browser bootstrap: wire the canvas + DPR + resize, build the App over the
+// real WebAudioEngine, and hand it the keyboard. Audio unlocks on the first
+// gesture (TitleScreen calls services.audio.unlock() on any key), because
+// browsers refuse to start an AudioContext before one.
 
-const canvas = document.getElementById('game') as HTMLCanvasElement;
-const ctx = canvas.getContext('2d');
+import { App } from './app/App';
+import { WebAudioEngine } from './audio/WebAudioEngine';
+
+const canvas = document.getElementById('game') as HTMLCanvasElement | null;
+const uiRoot = document.getElementById('ui');
+
+if (!canvas) throw new Error('index.html must provide a #game canvas');
+if (!uiRoot) throw new Error('index.html must provide a #ui overlay');
+
+const audio = new WebAudioEngine();
+const app = new App({ uiRoot, canvas, audio, keySource: window });
 
 function resize(): void {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.floor(window.innerWidth * dpr);
-  canvas.height = Math.floor(window.innerHeight * dpr);
-  canvas.style.width = `${window.innerWidth}px`;
-  canvas.style.height = `${window.innerHeight}px`;
-  ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-  draw();
-}
-
-function draw(): void {
-  if (!ctx) return;
-  ctx.fillStyle = '#0d1117';
-  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-  ctx.fillStyle = '#3a7d2c';
-  ctx.font = 'bold 64px "Trebuchet MS", system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('MADden', window.innerWidth / 2, window.innerHeight / 2 - 20);
-  ctx.fillStyle = '#8b949e';
-  ctx.font = '20px "Trebuchet MS", system-ui, sans-serif';
-  ctx.fillText('Phase 0 scaffold — game under construction', window.innerWidth / 2, window.innerHeight / 2 + 24);
+  app.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
 }
 
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', resize);
 resize();
+
+// Seasons persist between weeks, never mid-game — this is the last-chance save.
+window.addEventListener('beforeunload', () => app.saveNow());
+window.addEventListener('pagehide', () => app.saveNow());
+
+app.start();

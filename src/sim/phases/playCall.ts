@@ -13,10 +13,11 @@ import { ext, resetPlayScratch, setPhase } from '../rules/ext';
 import { tickClock, tickPlayClock, useTimeout } from '../rules/clock';
 import { currentLineToGain } from '../rules/penalties';
 import { enforceDeadBallFoul, endQuarterNow } from './common';
+import { PLAY_TIMING } from '../../data/balance';
 
 /** Ticks the CPU "thinks" before sending its call in. */
-const CPU_CALL_MIN_TICKS = 18; // TODO(balance)
-const CPU_CALL_JITTER_TICKS = 14; // TODO(balance)
+const CPU_CALL_MIN_TICKS = PLAY_TIMING.cpuCallMinTicks;
+const CPU_CALL_JITTER_TICKS = PLAY_TIMING.cpuCallJitterTicks;
 
 function firstOffensivePlayOfType(type: string): string | null {
   const plays = allOffensivePlays();
@@ -44,6 +45,15 @@ function chooseControlled(s: GameState, offense: TeamSide, play: ReturnType<type
   const user = s.config.userTeam;
   if (user === null) return -1;
   if (user === offense) {
+    // On a kick the user works the meter, so hand them the kicker/punter.
+    const type = play.offensePlay.type;
+    if (type === 'punt') {
+      const p = findRole(play, 'P');
+      if (p >= 0) return p;
+    } else if (type === 'kickoff' || type === 'fieldGoal' || type === 'extraPoint') {
+      const k = findRole(play, 'K');
+      if (k >= 0) return k;
+    }
     const qb = findRole(play, 'QB');
     if (qb >= 0) return qb;
     for (let i = 0; i < 11; i++) if (play.players[i] !== undefined) return i;
@@ -147,8 +157,11 @@ export function playCallPhase(
     clockSec: s.clockSec,
     lineToGainY: currentLineToGain(s),
   };
-  // TODO(balance): fallback snap window when the coach publishes no target.
-  e.snapAtPlayClock = Math.min(s.playClockSec - 0.2, rng.misc.range(8, 20));
+  // Fallback snap window when the coach publishes no target of its own.
+  e.snapAtPlayClock = Math.min(
+    s.playClockSec - 0.2,
+    rng.misc.range(PLAY_TIMING.fallbackSnapPlayClockMin, PLAY_TIMING.fallbackSnapPlayClockMax),
+  );
   if (e.snapAtPlayClock < 0) e.snapAtPlayClock = 0;
 
   events.push({

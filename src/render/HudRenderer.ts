@@ -28,6 +28,8 @@ export const HUD_STYLE = {
   dotRadius: 3.2,
   dotSpacing: 9.5,
   tickerHeight: 24,
+  /** Ticker box baseline above the scoreboard strip (CSS px at uiScale 1). */
+  tickerOffset: 54,
   tickerCharsPerSec: 40,
   playClockPulseSec: 5,
   bg: 'rgba(9,12,17,0.86)',
@@ -241,7 +243,7 @@ export class HudRenderer {
     if (!line || line.text.length === 0) return;
     const s = box.s;
     const h = HUD_STYLE.tickerHeight * s;
-    const y = box.y - 54 * s;
+    const y = box.y - HUD_STYLE.tickerOffset * s;
     const shown = typewriterSlice(line.text, line.startTick, tick, HUD_STYLE.tickerCharsPerSec);
     if (shown.length === 0) return;
     const size = 13 * s;

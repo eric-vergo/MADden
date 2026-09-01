@@ -29,6 +29,15 @@ export const EFFECT_STYLE = {
   bannerInTicks: 9,
   bannerOutTicks: 14,
   letterboxFrac: 0.08,
+  /** Skip hint size, relative to the REPLAY wordmark. */
+  replayHintScale: 0.52,
+  /**
+   * Kick meter baseline, in CSS px above the bottom edge at uiScale 1. It has
+   * to clear the HUD ticker line, whose box tops out 112px above the bottom
+   * (strip margin 14 + strip height 44 + ticker offset 54); the meter hangs
+   * 34px below this baseline for the aim arrow.
+   */
+  kickMeterBottomOffset: 152,
   passMarkerRadiusYd: 1.2,
   maxEffects: 48,
 } as const;
@@ -284,7 +293,7 @@ export class EffectsRenderer {
     const w = 300 * s;
     const h = 20 * s;
     const x = cam.widthCss / 2 - w / 2;
-    const y = cam.heightCss - 132 * s;
+    const y = cam.heightCss - EFFECT_STYLE.kickMeterBottomOffset * s;
 
     roundRectPath(ctx, x - 6 * s, y - 22 * s, w + 12 * s, h + 40 * s, 8 * s);
     ctx.fillStyle = 'rgba(9,12,17,0.82)';
@@ -374,12 +383,18 @@ export class EffectsRenderer {
     ctx.fillRect(0, 0, cam.widthCss, bar);
     ctx.fillRect(0, cam.heightCss - bar, cam.widthCss, bar);
 
+    const size = Math.min(bar * 0.62, 26 * s);
+    // The skip hint holds steady — a blinking "press a key" reads as a fault.
+    ctx.font = `bold ${(size * EFFECT_STYLE.replayHintScale).toFixed(1)}px ${UI_FONT}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(245,247,250,0.62)';
+    ctx.fillText('ANY KEY TO SKIP', cam.widthCss - 24 * s, cam.heightCss - bar / 2);
+
     const blinkOn = opts.tick % TICK_HZ < TICK_HZ * 0.66;
     if (!blinkOn) return;
-    const size = Math.min(bar * 0.62, 26 * s);
     ctx.font = `bold ${size.toFixed(1)}px ${UI_FONT}`;
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
     const cy = bar / 2;
     ctx.fillStyle = '#FF3B30';
     ctx.beginPath();

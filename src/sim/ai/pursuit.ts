@@ -2,7 +2,9 @@
 // the AI's decision to call actions.attemptTackle.
 
 import type { GapId, SimPlayer, Vec2 } from '../types';
-import { BLOCK, COVERAGE, TACKLE } from '../../data/balance';
+import { BLOCK, COVERAGE, PURSUIT_AI, TACKLE } from '../../data/balance';
+
+export { PURSUIT_AI };
 import { attemptTackle } from '../actions';
 import { dist, dot, fromAngle, len, norm, sub } from '../vec';
 import {
@@ -12,25 +14,6 @@ import { GAP_X, clampFieldPoint, depthYd } from './frame';
 import { MIND_SHED_BURST } from './blocking';
 import { applyMove, faceToward, pursuePoint, rotate, seek } from './steering';
 
-// TODO(balance): pursuit tunables not present in balance.COVERAGE.
-export const PURSUIT_AI = {
-  laneEdgeX: 5.5, laneInteriorX: 1.6,
-  /** Rush checkpoint depth: 1 yd behind the LOS (design §9). */
-  checkpointDepthYd: -1.0,
-  checkpointReachedYd: 1.2,
-  containOutsideYd: 2.2,
-  blitzGapDepthYd: 0.5,
-  runFitDepthYd: 1.0,
-  /** Rank-based cutoff lanes: each extra rank aims this much further ahead. */
-  cutoffBaseLeadYd: 2.0, cutoffPerRankYd: 1.5,
-  angleNoiseRefreshTicks: 20,
-  tackleCooldownTicks: 8,
-  /** dot(carrierHeading, carrier→tackler) above this = chasing from behind. */
-  behindDotThreshold: 0.3,
-  frontalArcDot: 0.0,
-  /** A QB this far outside the pocket counts as a runner. */
-  scrambleTriggerYd: 3.0,
-} as const;
 
 const MIND_RECOG_DELAY = 'puRecogDelay';
 const MIND_RECOG_TRIGGER = 'puRecogTrigger';

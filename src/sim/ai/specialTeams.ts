@@ -4,8 +4,11 @@
 
 import type { SimPlayer, Vec2 } from '../types';
 import { FIELD_W, TICK_HZ } from '../constants';
-import { KICK } from '../../data/balance';
+import { KICK, ST_AI } from '../../data/balance';
+
+export { ST_AI };
 import { callFairCatch, pressKickMeter } from '../actions';
+import { ext } from '../rules/ext';
 import { dist } from '../vec';
 import { maxSpeed } from '../physics/movement';
 import { isIncapacitated, mindGet, mindSet, type AiCtx } from './context';
@@ -14,19 +17,6 @@ import { applyMove, arrive, faceToward, interceptBall, predictLanding, seek, tic
 import { blockNearestThreat } from './blocking';
 import { maybeTackle, updatePursuit } from './pursuit';
 
-// TODO(balance): special-teams AI tunables.
-export const ST_AI = {
-  meterStartTick: 4,
-  laneCount: 10,
-  laneHoldDepthYd: 12,
-  containOutsideYd: 3.0,
-  gunnerLateralYd: 15,
-  wedgeDepthYd: 9,
-  /** Let a punt bounce when it would land this close to our goal line. */
-  letBounceInsideYd: 8,
-  returnerSettleYd: 1.0,
-  puntTargetShortOfGoalYd: 6,
-} as const;
 
 const MIND_POWER_TICKS = 'stPowerTicks';
 const MIND_SWEEP_TICKS = 'stSweepTicks';
@@ -79,6 +69,21 @@ export function updateKicker(ctx: AiCtx, i: number): void {
   k.anim = 'kicking';
 
   if (presses >= 3) return;
+  // S1 already drives the meter for every CPU kick through its own KickPlan —
+  // that is where the difficulty kick error lives. Pressing from here as well
+  // interleaves two press streams: the AI's opening press starts the bar and
+  // S1's opening press locks the power five ticks later, so every placekick
+  // came off at 10% power and every field goal and extra point missed short.
+  const plan = ext(ctx.state).kick;
+  if (plan !== null && plan.auto) return;
+  // A meter that is live but not yet started still needs its opening press.
+  if (meter.startTick < 0) {
+    if (presses === 0 && ctx.t >= ST_AI.meterStartTick) {
+      mindSet(k, MIND_PRESSES, 1);
+      pressKickMeter(ctx.state, ctx.events);
+    }
+    return;
+  }
   if (!meter.active) {
     if (presses === 0 && ctx.t >= ST_AI.meterStartTick) {
       mindSet(k, MIND_PRESSES, 1);

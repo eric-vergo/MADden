@@ -65,7 +65,8 @@ describe('coach: run/pass balance by situation', () => {
 
   it('leading in the four-minute offense runs more than on 1st-and-10', () => {
     const fourMin = sample(
-      state({ down: 1, toGo: 10, ballOnY: 50, quarter: 4, clockSec: 200, score: [21, 14] }),
+      // 300-second quarters scale the four-minute window down to 100s.
+      state({ down: 1, toGo: 10, ballOnY: 50, quarter: 4, clockSec: 80, score: [21, 14] }),
       300,
     );
     const neutral = sample(state({ down: 1, toGo: 10, ballOnY: 50 }), 300);

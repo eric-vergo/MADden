@@ -10,34 +10,15 @@ import {
   OFFENSE_HI, OFFENSE_LO,
   isIncapacitated, mindGet, mindSet, nearestOpponentTo, type AiCtx,
 } from './context';
+import { CARRIER_AI, COACH } from '../../data/balance';
+import { scaledClockWindow } from './coach';
 import { alignmentOf } from './memory';
 import { GAP_ORDER, GAP_X, clampFieldPoint, depthYd, neighborGaps } from './frame';
 import { applyMove, faceToward, seek } from './steering';
 import { FIELD_W } from '../constants';
 
-// TODO(balance): carrier AI tunables.
-export const CARRIER_AI = {
-  gapRescoreTicks: 10,
-  gapAimDepthYd: 2.0,
-  gapLaneScanYd: 2.5,
-  gapLaneDepthYd: 5.0,
-  gapDefenderPenalty: 1.5,
-  secondLevelDepthYd: 2.0,
-  /** Open-field candidate fan. */
-  fanHalfAngleRad: 1.31, // ~75 degrees
-  fanSteps: 11,
-  fanProbeYd: 4.0,
-  fanProgressWeight: 1.0,
-  fanSpaceWeight: 0.35,
-  sidelineAvoidYd: 4.0,
-  sidelineAvoidPenalty: 2.5,
-  sidelineSeekBonus: 1.8,
-  /** Move decisions. */
-  moveTriggerYd: 2.4,
-  moveCooldownTicks: 30,
-  slideDefenderYd: 2.6,
-  qbSlideMinDepthYd: 4.0,
-} as const;
+
+export { CARRIER_AI };
 
 const MIND_GAP = 'crGap';
 const MIND_GAP_TICK = 'crGapTick';
@@ -120,7 +101,8 @@ export function wantsSideline(ctx: AiCtx): boolean {
 /** Leading late: stay inbounds and keep the clock moving. */
 export function wantsInbounds(ctx: AiCtx): boolean {
   const s = ctx.state;
-  return s.quarter >= 4 && s.clockSec <= 300 && scoreDiff(ctx) > 0;
+  if (s.quarter < 4 || scoreDiff(ctx) <= 0) return false;
+  return s.clockSec <= scaledClockWindow(s, COACH.milkSecLeft);
 }
 
 // ---------------------------------------------------------------------------

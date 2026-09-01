@@ -9,37 +9,16 @@ import type {
   DefPlayTag, DefensivePlayDef, Difficulty, GameState, OffensivePlayDef,
   PlayTag, TeamSide,
 } from '../types';
-import { DIFFICULTY, KICK } from '../../data/balance';
+import {
+  COACH, DEF_TAG_WEIGHTS, DIFFICULTY, KICK, TAG_WEIGHTS, type Bucket,
+} from '../../data/balance';
+
+export { COACH };
+export type { Bucket };
 import type { Rng } from '../rng';
 import { allDefensivePlays, allOffensivePlays, getOffensivePlay } from '../../data/plays/index';
 
-// TODO(balance): play-calling tunables.
-export const COACH = {
-  ewmaAlpha: 0.3,
-  ewmaPriorYds: 4.5,
-  ewmaWeight: 0.12,
-  ewmaMultMin: 0.5, ewmaMultMax: 1.6,
-  varietyLookback: 4,
-  varietyPenalty: 0.6,
-  /** Spreads tag weights before the softmax so the temperature has bite. */
-  tagScoreScale: 2.5,
-  /** Hurry-up / milk / normal play-clock targets (seconds REMAINING). */
-  hurryUpPlayClockSec: 26,
-  milkPlayClockSec: 3,
-  normalPlayClockMin: 12, normalPlayClockMax: 20,
-  hurryUpSecLeft: 240,
-  milkSecLeft: 300,
-  defensiveTimeoutSecLeft: 180,
-  spikeSecLeft: 35,
-  fgRangeMarginYd: 4,
-  runTendencyHigh: 0.6, runTendencyLow: 0.4,
-  tendencyBoost: 1.4,
-} as const;
 
-export type Bucket =
-  | '1st-10' | '2nd-short' | '2nd-long'
-  | '3rd-short' | '3rd-medium' | '3rd-long'
-  | 'red-zone' | 'goal-to-go' | 'two-min-trailing' | 'four-min-leading';
 
 export interface Situation {
   down: number;
@@ -51,6 +30,16 @@ export interface Situation {
   timeouts: number;
   oppTimeouts: number;
   isTwoMinute: boolean;
+  /** Quarter-length-scaled windows (see COACH.clockWindowReferenceQuarterSec). */
+  milkSec: number;
+  hurrySec: number;
+}
+
+/** Scale a 15-minute-quarter clock window to the configured quarter length. */
+export function scaledClockWindow(state: GameState, baseSec: number): number {
+  const q = state.config.quarterLengthSec;
+  const scaled = baseSec * (q / COACH.clockWindowReferenceQuarterSec);
+  return Math.max(COACH.clockWindowMinSec, Math.min(baseSec, scaled));
 }
 
 export function situationOf(state: GameState, team: TeamSide): Situation {
@@ -67,11 +56,13 @@ export function situationOf(state: GameState, team: TeamSide): Situation {
     timeouts: state.timeouts[team],
     oppTimeouts: state.timeouts[opp],
     isTwoMinute: state.clockSec <= 120,
+    milkSec: scaledClockWindow(state, COACH.milkSecLeft),
+    hurrySec: scaledClockWindow(state, COACH.hurryUpSecLeft),
   };
 }
 
 export function bucketOf(sit: Situation): Bucket {
-  if (sit.quarter >= 4 && sit.scoreDiff > 0 && sit.secLeft <= COACH.milkSecLeft) {
+  if (sit.quarter >= 4 && sit.scoreDiff > 0 && sit.secLeft <= sit.milkSec) {
     return 'four-min-leading';
   }
   if (
@@ -92,60 +83,7 @@ export function bucketOf(sit: Situation): Bucket {
   return '1st-10';
 }
 
-// TODO(balance): offensive tag weight table.
-const TAG_WEIGHTS: Record<Bucket, Partial<Record<PlayTag, number>>> = {
-  '1st-10': {
-    'run-inside': 1.0, 'run-outside': 0.8, draw: 0.25,
-    quick: 0.8, medium: 0.9, deep: 0.45, screen: 0.3, 'play-action': 0.55,
-  },
-  '2nd-short': {
-    'run-inside': 1.2, 'run-outside': 0.9,
-    quick: 0.6, medium: 0.5, deep: 0.35, 'play-action': 0.6,
-  },
-  '2nd-long': {
-    'run-inside': 0.4, 'run-outside': 0.4, draw: 0.5,
-    quick: 0.7, medium: 1.0, deep: 0.6, screen: 0.5, 'play-action': 0.5,
-  },
-  '3rd-short': {
-    'run-inside': 1.6, 'run-outside': 1.0,
-    quick: 0.8, medium: 0.2, 'play-action': 0.4, 'goal-line': 0.7,
-  },
-  '3rd-medium': {
-    quick: 1.0, medium: 1.1, deep: 0.3, screen: 0.4, 'run-outside': 0.3,
-  },
-  '3rd-long': {
-    medium: 1.2, deep: 0.8, quick: 0.5, screen: 0.4, draw: 0.2,
-  },
-  'red-zone': {
-    'run-inside': 1.0, quick: 1.0, medium: 0.7, 'goal-line': 0.6,
-    'play-action': 0.6, deep: 0.15, 'run-outside': 0.6,
-  },
-  'goal-to-go': {
-    'goal-line': 1.3, 'run-inside': 1.1, quick: 0.9, 'play-action': 0.5,
-  },
-  'two-min-trailing': {
-    quick: 1.1, medium: 1.2, deep: 0.7, screen: 0.3,
-    'run-inside': 0.15, 'run-outside': 0.2,
-  },
-  'four-min-leading': {
-    'run-inside': 1.4, 'run-outside': 1.0, draw: 0.4,
-    quick: 0.4, medium: 0.25, 'play-action': 0.35,
-  },
-};
 
-// TODO(balance): defensive tag weight table.
-const DEF_TAG_WEIGHTS: Record<Bucket, Partial<Record<DefPlayTag, number>>> = {
-  '1st-10': { zone: 0.9, man: 0.8, blitz: 0.4, contain: 0.5, 'run-commit': 0.3 },
-  '2nd-short': { 'run-commit': 0.8, man: 0.7, zone: 0.7, blitz: 0.5 },
-  '2nd-long': { zone: 1.0, man: 0.7, blitz: 0.5, contain: 0.4 },
-  '3rd-short': { 'run-commit': 1.0, blitz: 0.9, man: 0.8, zone: 0.4 },
-  '3rd-medium': { zone: 1.0, man: 0.9, blitz: 0.7 },
-  '3rd-long': { zone: 1.1, blitz: 0.7, man: 0.6, prevent: 0.3 },
-  'red-zone': { man: 1.0, zone: 0.8, blitz: 0.6, 'run-commit': 0.5 },
-  'goal-to-go': { 'run-commit': 1.0, man: 0.9, blitz: 0.6 },
-  'two-min-trailing': { prevent: 1.0, zone: 1.0, contain: 0.6, man: 0.5, blitz: 0.2 },
-  'four-min-leading': { 'run-commit': 1.0, blitz: 0.8, man: 0.7, zone: 0.5 },
-};
 
 const NON_NORMAL_TYPES = new Set([
   'kickoff', 'punt', 'fieldGoal', 'extraPoint', 'twoPoint', 'kneel', 'spike',
@@ -281,7 +219,7 @@ export function fourthDownChoice(
   const chart = DIFFICULTY[difficulty].fourthDownChart;
 
   // Desperation: trailing late, a punt or short FG cannot win it.
-  const late = sit.quarter >= 4 && sit.secLeft <= 300;
+  const late = sit.quarter >= 4 && sit.secLeft <= sit.milkSec;
   if (late && sit.scoreDiff < 0) {
     const needTd = sit.scoreDiff < -3;
     if (!inRange) return 'go';
@@ -297,14 +235,16 @@ export function fourthDownChoice(
       go = (sit.toGo <= 2 && sit.yardsToGoal <= 45) || (sit.toGo <= 1 && sit.yardsToGoal <= 60);
       break;
     case 'analytic':
-      go = (sit.toGo <= 4 && sit.yardsToGoal <= 45) || (sit.toGo <= 2 && sit.yardsToGoal <= 60);
+      go = (sit.toGo <= 5 && sit.yardsToGoal <= 48) || (sit.toGo <= 2 && sit.yardsToGoal <= 62);
       break;
     default:
-      go = (sit.toGo <= 6 && sit.yardsToGoal <= 45) || (sit.toGo <= 3 && sit.yardsToGoal <= 65);
+      go = (sit.toGo <= 7 && sit.yardsToGoal <= 48) || (sit.toGo <= 4 && sit.yardsToGoal <= 68);
       break;
   }
   // Never gamble deep in our own end unless desperate.
   if (go && sit.yardsToGoal > 70) go = false;
+  // With three points on the table, only short yardage is worth the down.
+  if (go && inRange && sit.toGo > COACH.goInFgRangeMaxToGo[chart]) go = false;
   if (go) return 'go';
   if (inRange) return 'fg';
   return 'punt';
@@ -325,6 +265,23 @@ export function shouldKneel(state: GameState, team: TeamSide, sit: Situation): b
   return sit.secLeft < need;
 }
 
+/**
+ * Last snap of a half inside field-goal range: take the points instead of
+ * running a play the clock will swallow.
+ */
+export function shouldKickEndOfHalf(
+  state: GameState,
+  team: TeamSide,
+  sit: Situation,
+): boolean {
+  if (sit.quarter !== 2 && sit.quarter !== 4) return false;
+  if (sit.secLeft > COACH.endOfHalfKickSec) return false;
+  // Trailing by more than a field goal in the fourth, three points are no use.
+  if (sit.quarter >= 4 && (sit.scoreDiff > 0 || sit.scoreDiff < -3)) return false;
+  const fgDist = sit.yardsToGoal + 17;
+  return fgDist <= fieldGoalRangeYd(state, team) - COACH.fgRangeMarginYd;
+}
+
 export function shouldSpike(state: GameState, team: TeamSide, sit: Situation): boolean {
   if (!state.clockRunning) return false;
   if (sit.down >= 4) return false;
@@ -340,7 +297,7 @@ export function snapPlayClockTarget(state: GameState, team: TeamSide, rng: Rng):
   const hurry = (sit.quarter === 2 || sit.quarter >= 4)
     && sit.secLeft <= COACH.hurryUpSecLeft && sit.scoreDiff <= 0;
   if (hurry) return COACH.hurryUpPlayClockSec;
-  if (sit.quarter >= 4 && sit.scoreDiff > 0 && sit.secLeft <= COACH.milkSecLeft) {
+  if (sit.quarter >= 4 && sit.scoreDiff > 0 && sit.secLeft <= sit.milkSec) {
     return COACH.milkPlayClockSec;
   }
   return rng.int(COACH.normalPlayClockMin, COACH.normalPlayClockMax);
@@ -350,7 +307,8 @@ export function snapPlayClockTarget(state: GameState, team: TeamSide, rng: Rng):
 export function cpuShouldCallTimeout(state: GameState, team: TeamSide): boolean {
   const opp: TeamSide = team === 0 ? 1 : 0;
   if (state.timeouts[team] <= 0) return false;
-  if (state.quarter < 4 || state.clockSec > COACH.defensiveTimeoutSecLeft) return false;
+  if (state.quarter < 4) return false;
+  if (state.clockSec > scaledClockWindow(state, COACH.defensiveTimeoutSecLeft)) return false;
   if (!state.clockRunning) return false;
   if (state.possession === team) return false;
   return state.score[team] < state.score[opp];
@@ -383,6 +341,10 @@ export function chooseOffensePlay(state: GameState, team: TeamSide, rng: Rng): s
   if (shouldKneel(state, team, sit)) {
     const kneel = playsOfType('kneel');
     if (kneel.length > 0) return (kneel[0] as OffensivePlayDef).id;
+  }
+  if (shouldKickEndOfHalf(state, team, sit)) {
+    const fg = playsOfType('fieldGoal');
+    if (fg.length > 0) return (fg[0] as OffensivePlayDef).id;
   }
   if (shouldSpike(state, team, sit)) {
     const spike = playsOfType('spike');

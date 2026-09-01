@@ -2,7 +2,9 @@
 // pull/lead paths, and open-field/screen blocking.
 
 import type { GapId, SimPlayer, Vec2 } from '../types';
-import { BLOCK, MOVE, PENALTY } from '../../data/balance';
+import { BLOCK, BLOCK_AI, MOVE, PENALTY } from '../../data/balance';
+
+export { BLOCK_AI };
 import { maybeHoldingOnShed } from '../actions';
 import { dist, len, norm, sub } from '../vec';
 import { maxSpeed } from '../physics/movement';
@@ -13,23 +15,6 @@ import {
 import { GAP_X, clampFieldPoint, depthYd, lateral } from './frame';
 import { applyMove, arrive, seek } from './steering';
 
-// TODO(balance): blocking AI tunables not present in balance.BLOCK.
-export const BLOCK_AI = {
-  /** A blocker abandons his man once he leaves this arc (yards). */
-  retargetArcYd: 3.0,
-  retargetCheckTicks: 15,
-  /** Aim point offset in front of the defender when closing. */
-  approachLeadSec: 0.25,
-  /** Second-level defenders start at this depth (yards past the LOS). */
-  secondLevelDepthYd: 3.0,
-  /** Pull path: run this far behind the LOS before turning up. */
-  pullDepthYd: 1.6,
-  /** Extra blocker climbs after this many winning contests. */
-  climbAfterWins: 2,
-  /** Open-field blockers aim this far in front of the carrier's threat. */
-  shieldOffsetYd: 0.9,
-  maxBlockersPerDefender: 2,
-} as const;
 
 const MIND_TGT = 'bkTgt';
 const MIND_ENG = 'bkEngTick';
@@ -236,11 +221,18 @@ export function resolveContest(ctx: AiCtx, bi: number): number | null {
   const since = ctx.state.tick - mindGet(b, MIND_ENG, ctx.state.tick);
   if (since <= 0 || since % BLOCK.contestIntervalTicks !== 0) return null;
 
-  const isRun = ctx.play.offensePlay.type === 'run' || ctx.carrierIdx >= 0;
+  // A dropback QB still holding the ball is NOT a runner: without this test
+  // every pass protection is graded as run blocking, because the quarterback
+  // counts as the ball carrier from the snap.
+  const carrier = ctx.carrierIdx >= 0 ? ctx.players[ctx.carrierIdx] : undefined;
+  const carrierIsRunner = carrier !== undefined
+    && (ctx.carrierIdx !== ctx.qbIdx || depthYd(carrier.pos2.y, ctx.los, ctx.dir) > -0.5);
+  const isRun = ctx.play.offensePlay.type === 'run' || carrierIsRunner;
   const blockRating = isRun ? b.ratings.rbk : b.ratings.pbk;
   const doubles = doubleTeamPartners(ctx, bi, di);
   const blockScore = BLOCK.blockWeight * blockRating + BLOCK.strWeight * b.ratings.str
-    + ctx.rng.gauss() * BLOCK.noiseSigma + (doubles > 0 ? BLOCK.doubleTeamBonus : 0);
+    + ctx.rng.gauss() * BLOCK.noiseSigma + (doubles > 0 ? BLOCK.doubleTeamBonus : 0)
+    + (isRun ? BLOCK.runBlockBonus : 0);
   const shedScore = BLOCK.blockWeight * d.ratings.shd + BLOCK.strWeight * d.ratings.str
     + ctx.rng.gauss() * BLOCK.noiseSigma;
   const margin = blockScore - shedScore;

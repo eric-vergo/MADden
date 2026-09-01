@@ -12,7 +12,7 @@ import {
   TOUCHBACK_KICKOFF_YD, TOUCHBACK_OTHER_YD,
 } from '../constants';
 import { CENTER_X } from '../constants';
-import { KICK, MOVE, PASS, TACKLE } from '../../data/balance';
+import { KICK, MOVE, PASS, PLAY_TIMING, TACKLE } from '../../data/balance';
 import { updateLiveAI } from '../ai/index';
 import { attemptTackle, callFairCatch, pressKickMeter, throwAway, throwPass, tryCarrierMove } from '../actions';
 import { ext, setPhase } from '../rules/ext';
@@ -32,10 +32,10 @@ import {
 import { missedFieldGoalSpot, touchbackSpot } from '../rules/scoring';
 import { defaultOutcome } from './outcome';
 
-/** Ticks of flight before a pass can be caught (stops self-catches). */
-const MIN_AIR_TICKS = 3; // TODO(balance)
-
 const DROPBACK_TYPES: readonly string[] = ['pass', 'playAction', 'screen', 'twoPoint'];
+
+/** Grace ticks before an untouched user kick meter starts itself. */
+const USER_METER_START_GRACE = PLAY_TIMING.userMeterStartGraceTicks;
 
 function isDropbackSack(
   s: GameState,
@@ -300,6 +300,10 @@ function updateKick(s: GameState, p: PlayState, events: SimEvent[]): void {
       pressKickMeter(s, events);
       plan.pressesDone += 1;
     }
+  } else if (km.startTick < 0 && s.tick - (plan.pressTicks[0] as number) >= USER_METER_START_GRACE) {
+    // A user meter that is never started would never expire either (forceExpiry
+    // measures from startTick), so the play would hang. Start it for them.
+    pressKickMeter(s, events);
   }
   forceExpiry(km, s.tick);
   launchKick(s, p, events);
@@ -318,7 +322,7 @@ function catchCandidates(s: GameState, p: PlayState): CatchCandidate[] {
   if (p.ball.z > PASS.jumpCatchZ) return out;
   // The thrower can never catch his own forward pass, and the ball needs a
   // couple of ticks of air before anyone can be credited with a reception.
-  if (s.tick - e.throwTick < MIN_AIR_TICKS) return out;
+  if (s.tick - e.throwTick < PLAY_TIMING.minAirTicks) return out;
   for (let i = 0; i < p.players.length; i++) {
     if (i === e.lastPasserIdx) continue;
     const pl = p.players[i];
@@ -415,13 +419,15 @@ function resolvePassArrival(s: GameState, p: PlayState, rng: RngSet, events: Sim
   if (winner === null) return;
 
   if (!contested) {
-    const pCatch = Math.min(
+    let pCatch = Math.min(
       PASS.uncontestedCatchMax,
       PASS.uncontestedCatchBase + winner.cth * PASS.uncontestedCatchPerCth,
     );
+    // A defender alone under the ball still mostly knocks it down.
+    if (!winner.offense) pCatch *= PASS.defenderCatchMult;
     if (rng.physics.chance(pCatch)) completeCatch(s, p, winner.idx, false, events);
     else {
-      events.push({ type: 'DROP', tick: s.tick, receiverIdx: winner.idx });
+      if (winner.offense) events.push({ type: 'DROP', tick: s.tick, receiverIdx: winner.idx });
       markIncomplete(s, p, events);
     }
     return;
@@ -435,6 +441,16 @@ function resolvePassArrival(s: GameState, p: PlayState, rng: RngSet, events: Sim
     !winner.offense && winnerPlayer !== undefined && winnerPlayer.mind['cvPlayBall'] === 2
   ) {
     markIncomplete(s, p, events);
+    return;
+  }
+  // A defender who wins the contest is far more likely to break it up than
+  // to come down with it, however cleanly he won the spot.
+  if (!winner.offense) {
+    if (rng.physics.chance(PASS.defenderContestedIntP)) {
+      completeCatch(s, p, winner.idx, true, events);
+    } else {
+      markIncomplete(s, p, events);
+    }
     return;
   }
   if (diff > PASS.contestedCleanMargin) {

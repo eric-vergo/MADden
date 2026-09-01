@@ -74,7 +74,8 @@ describe('CPU ball carrier', () => {
       players: [{ slot: 2, role: 'RB', pos: 'RB', x: 26, y: 62, hasBall: true, assignment: { kind: 'carrierAI' } }],
     });
     leading.state.quarter = 4;
-    leading.state.clockSec = 200;
+    // The milk window scales with quarter length (300s quarters -> 100s).
+    leading.state.clockSec = 80;
     leading.state.score = [24, 17];
     expect(wantsInbounds(leading.ctx())).toBe(true);
     expect(wantsSideline(leading.ctx())).toBe(false);

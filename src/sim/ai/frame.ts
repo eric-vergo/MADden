@@ -4,17 +4,12 @@
 
 import type { GapId, Vec2 } from '../types';
 import { FIELD_W, GOAL_AWAY_Y, GOAL_HOME_Y } from '../constants';
+import { GAP_X, SIDELINE_MARGIN_YD } from '../../data/balance';
+
+export { GAP_X, SIDELINE_MARGIN_YD };
 
 export type Dir = 1 | -1;
 
-// Gap mouths as normalized x offsets from the ball (OL split 1.8 yd).
-// TODO(balance): gap geometry table.
-export const GAP_X: Record<GapId, number> = {
-  'A-left': -0.9, 'A-right': 0.9,
-  'B-left': -2.7, 'B-right': 2.7,
-  'C-left': -4.6, 'C-right': 4.6,
-  'D-left': -7.4, 'D-right': 7.4,
-};
 
 /** The two gaps immediately beside `gap`, innermost first. */
 export const GAP_ORDER: readonly GapId[] = [
@@ -54,9 +49,6 @@ export function targetGoalY(dir: Dir): number {
   return dir === 1 ? GOAL_AWAY_Y : GOAL_HOME_Y;
 }
 
-// Sideline keep-out used by AI steering (players never aim outside this).
-// TODO(balance): sideline margin for AI steering.
-export const SIDELINE_MARGIN_YD = 0.6;
 
 export function clampFieldX(x: number): number {
   return Math.max(SIDELINE_MARGIN_YD, Math.min(FIELD_W - SIDELINE_MARGIN_YD, x));

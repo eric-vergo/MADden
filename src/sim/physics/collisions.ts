@@ -3,10 +3,10 @@
 
 import type { PlayState, SimPlayer, Vec2 } from '../types';
 import { FIELD_W } from '../constants';
-import { MOVE } from '../../data/balance';
+import { BALL, MOVE } from '../../data/balance';
 
 /** Sideline tolerance: a foot on the paint is out. */
-export const SIDELINE_MARGIN = 0.3; // TODO(balance)
+export const SIDELINE_MARGIN = BALL.sidelineMarginYd;
 
 export function isOutOfBoundsX(x: number): boolean {
   return x < SIDELINE_MARGIN || x > FIELD_W - SIDELINE_MARGIN;

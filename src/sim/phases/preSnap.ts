@@ -5,7 +5,7 @@ import {
 } from '../types';
 import type { SimEvent, TickInput } from '../events';
 import type { RngSet } from '../rng';
-import { PENALTY, DIFFICULTY, KICK } from '../../data/balance';
+import { PENALTY, DIFFICULTY, KICK, PLAY_TIMING } from '../../data/balance';
 import { cpuShouldCallTimeout, updatePreSnapAI } from '../ai/index';
 import { ext, setPhase, type KickPlan } from '../rules/ext';
 import { tickClock, tickPlayClock, useTimeout } from '../rules/clock';
@@ -15,15 +15,6 @@ import { otherTeam } from '../rules/downs';
 import { attackEndLineY } from '../transform';
 import { tickForAccuracy, tickForPower } from '../rules/kickMeter';
 import { defaultOutcome } from './outcome';
-
-/** Minimum ticks at the line before anyone can snap it. */
-const SETTLE_TICKS = 30; // TODO(balance)
-
-/** Ticks after the snap before the kick meter starts, by style. */
-// TODO(balance)
-const METER_PREP: Record<'kickoff' | 'punt' | 'placekick', number> = {
-  kickoff: 5, punt: 15, placekick: 6,
-};
 
 const OL_ROLES: readonly RoleId[] = ['LT', 'LG', 'C', 'RG', 'RT'];
 
@@ -39,8 +30,8 @@ function kickStyleOf(type: string): 'kickoff' | 'punt' | 'placekick' | null {
 }
 
 /** Ticks a play may run before the safety whistle ends it. */
-export const LIVE_MAX_TICKS = 12 * 60; // TODO(balance)
-export const LIVE_MAX_TICKS_KICK = 15 * 60; // TODO(balance)
+export const LIVE_MAX_TICKS = PLAY_TIMING.liveMaxTicks;
+export const LIVE_MAX_TICKS_KICK = PLAY_TIMING.liveMaxTicksKick;
 
 function planCpuKick(
   s: GameState,
@@ -62,11 +53,11 @@ function planCpuKick(
     target = Math.max(0.35, Math.min(1, (toGoal - 8) / Math.max(1, maxDist)));
   } else if (style === 'placekick') {
     const maxRange = KICK.fgMaxRangeBase + KICK.fgMaxRangePerKpw * (kpw / 99);
-    target = Math.max(0.25, Math.min(1, fgDistance / Math.max(1, maxRange) + 0.12));
+    target = Math.max(0.25, Math.min(1, (fgDistance + KICK.fgAimPastPostsYd) / Math.max(1, maxRange)));
   }
 
   const sigma = DIFFICULTY[s.config.difficulty].cpuKickErrorSigma;
-  const start = s.tick + METER_PREP[style];
+  const start = s.tick + PLAY_TIMING.meterPrepTicks[style];
   const powerTick = Math.max(
     start + 1,
     tickForPower(start, target) + Math.round(rng.misc.gauss() * sigma * KICK.meterFillTicks),
@@ -169,6 +160,11 @@ export function preSnapPhase(
 
   for (const c of input.commands) {
     if (c.type === 'TIMEOUT') useTimeout(s, c.team, events);
+    // Pre-snap defender switching (PLAY_LIVE handles it once the ball is snapped).
+    if (c.type === 'SWITCH_CONTROLLED' && c.playerIdx >= 0 && c.playerIdx < p.players.length) {
+      p.controlledIdx = c.playerIdx;
+      events.push({ type: 'CONTROL_CHANGED', tick: s.tick, controlledIdx: c.playerIdx });
+    }
   }
 
   const tmBefore: [boolean, boolean] = [s.twoMinuteFired[0], s.twoMinuteFired[1]];
@@ -222,7 +218,7 @@ export function preSnapPhase(
   }
 
   let snapNow = false;
-  if (elapsed >= SETTLE_TICKS) {
+  if (elapsed >= PLAY_TIMING.settleTicks) {
     if (userTeam === offense) {
       snapNow = input.frame.pressed.has(GameAction.Snap);
     } else {

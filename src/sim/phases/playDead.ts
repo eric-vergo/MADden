@@ -23,12 +23,13 @@ import {
 import { accumulatePlay, recordFirstDown, recordPenalty, recordThirdDown } from '../stats';
 import { snapToHash } from '../transform';
 import { beginPlayCall, endGame, endQuarterNow } from './common';
+import { PLAY_TIMING } from '../../data/balance';
 
 /** Presentation pause between the whistle and the next snap. */
-const DEAD_PAUSE_TICKS = 90; // TODO(balance)
+const DEAD_PAUSE_TICKS = PLAY_TIMING.deadPauseTicks;
 
 /** Gain (yards) that counts as a big play for the replay trigger. */
-const BIG_GAIN_YARDS = 20; // TODO(balance)
+const BIG_GAIN_YARDS = PLAY_TIMING.bigGainYards;
 
 function isPatPlay(s: GameState): boolean {
   const t = s.play?.offensePlay.type;

@@ -8,20 +8,10 @@ import { dist, len, norm, sub } from '../vec';
 import type { AiCtx } from './context';
 import { mindSet } from './context';
 import { clampFieldPoint } from './frame';
-import { MOVE } from '../../data/balance';
+import { MOVE, STEER } from '../../data/balance';
 
-// TODO(balance): steering tunables (kept local per parallel-agent rules).
-export const STEER = {
-  arriveSlowRadiusYd: 2.0,
-  pursueMaxLeadSec: 1.2,
-  ballSampleTicks: 5,
-  ballSampleHorizonSec: 5.0,
-  interceptReachZ: 2.6,
-  /** Reach slack when judging "can I get there in time" (yards). */
-  reachSlackYd: 0.8,
-  /** Extra push a player applies to clear an overlapping teammate. */
-  separationPush: 1.2,
-} as const;
+export { STEER };
+
 
 export const ZERO: Vec2 = { x: 0, y: 0 };
 

@@ -3,7 +3,9 @@
 // Landmark geometry comes from data/zones.ts (S2); this module owns behavior.
 
 import type { ManTarget, SimPlayer, Vec2, ZoneName } from '../types';
-import { COVERAGE } from '../../data/balance';
+import { COVERAGE, COVERAGE_AI } from '../../data/balance';
+
+export { COVERAGE_AI };
 import { ZONE_LANDMARKS, type ZoneLandmark } from '../../data/zones';
 import { maxSpeed } from '../physics/movement';
 import { dist, len, norm, sub } from '../vec';
@@ -11,31 +13,13 @@ import {
   DEFENSE_HI, DEFENSE_LO, coverageRating, eligibleReceivers, isIncapacitated,
   mindGet, mindSet, type AiCtx,
 } from './context';
-import { clampFieldPoint, clampFieldX, depthYd, lateral } from './frame';
+import { clampFieldPoint, clampFieldX, depthYd, lateral, targetGoalY } from './frame';
 import { applyMove, arrive, faceToward, interceptBall, predictLanding, seek } from './steering';
 import { routeComplete } from './routes';
 
 export type { ZoneLandmark };
 export { ZONE_LANDMARKS };
 
-// TODO(balance): coverage AI tunables not present in balance.COVERAGE.
-export const COVERAGE_AI = {
-  ringSize: 32,
-  leverageShadeYd: 0.7,
-  /** Cushion shrinks by this per yard of receiver depth. */
-  cushionCloseRate: 0.25,
-  cushionMinYd: 0.4,
-  trailOffsetYd: 0.8,
-  /** Seconds of receiver motion a zone defender projects when pattern matching. */
-  matchProjectSec: 1.0,
-  matchReleaseMult: 1.2,
-  /** Curl-flat breaks to the flat after this many ticks with no curl threat. */
-  flatBreakTicks: 40,
-  deepZoneMinDepth: 10,
-  /** Inside this distance the defender mirrors velocity instead of chasing. */
-  mirrorLockYd: 2.0,
-  mirrorGain: 2.5,
-} as const;
 
 const MIND_TGT = 'cvTgt';
 const MIND_DELAY = 'cvDelay';
@@ -201,17 +185,28 @@ function holdSpot(ctx: AiCtx, i: number): void {
 // Zone
 // ---------------------------------------------------------------------------
 
+/**
+ * Deepest depth a zone is allowed to carry. Landmarks are authored for open
+ * field; in the red zone an 18-yard third would park the defender behind the
+ * end line and vacate the whole end zone, so the field compresses the drop.
+ */
+function maxZoneDepth(ctx: AiCtx): number {
+  const toGoal = depthYd(targetGoalY(ctx.dir), ctx.los, ctx.dir);
+  return Math.max(0, toGoal + COVERAGE_AI.zoneEndZoneCushionYd);
+}
+
 export function zoneCenter(ctx: AiCtx, zone: ZoneName): Vec2 {
   const lm = ZONE_LANDMARKS[zone];
   return {
     x: clampFieldX(ctx.ball.pos2.x + lm.x * ctx.dir),
-    y: ctx.los + lm.y * ctx.dir,
+    y: ctx.los + Math.min(lm.y, maxZoneDepth(ctx)) * ctx.dir,
   };
 }
 
 /** World y a zone defender must never come shallower than pre-throw. */
 export function zoneMinDepthY(ctx: AiCtx, zone: ZoneName): number {
-  return ctx.los + ZONE_LANDMARKS[zone].minDepth * ctx.dir;
+  const depth = Math.min(ZONE_LANDMARKS[zone].minDepth, maxZoneDepth(ctx));
+  return ctx.los + depth * ctx.dir;
 }
 
 function clampBehindMinDepth(ctx: AiCtx, zone: ZoneName, point: Vec2): Vec2 {
@@ -275,7 +270,9 @@ export function updateZone(ctx: AiCtx, i: number): void {
   }
 
   const isDeep = lm.minDepth >= COVERAGE_AI.deepZoneMinDepth;
-  const cap = isDeep && claim < 0 ? maxSpeed(p) * 0.7 : maxSpeed(p, { sprinting: true });
+  const cap = isDeep && claim < 0
+    ? maxSpeed(p) * COVERAGE_AI.deepZoneIdleSpeedMult
+    : maxSpeed(p, { sprinting: true });
   applyMove(ctx, i, arrive(p, clampFieldPoint(aim), 1.5, cap), { sprinting: !isDeep });
   const qb = ctx.qbIdx >= 0 ? ctx.players[ctx.qbIdx] : undefined;
   if (isDeep && qb) { faceToward(p, qb.pos2); p.anim = 'backpedal'; } else { p.anim = 'running'; }

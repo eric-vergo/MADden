@@ -3,7 +3,9 @@
 
 import type { Route, RouteWaypoint, SimPlayer, Vec2 } from '../types';
 import { TICK_DT } from '../constants';
-import { COVERAGE, MOVE } from '../../data/balance';
+import { COVERAGE, MOVE, ROUTE_AI } from '../../data/balance';
+
+export { ROUTE_AI };
 import { maxSpeed } from '../physics/movement';
 import { dist, dot, len, norm, sub } from '../vec';
 import {
@@ -14,25 +16,6 @@ import { clampFieldPoint, depthYd, toWorldPoint } from './frame';
 import { applyMove, arrive, faceToward, interceptBall, seek } from './steering';
 import { blockNearestThreat } from './blocking';
 
-// TODO(balance): route-running tunables.
-export const ROUTE_AI = {
-  sharpArriveYd: 0.7,
-  roundedArriveYd: 1.5,
-  /** A waypoint counts as reached once it is behind us inside this radius. */
-  passedWaypointYd: 2.0,
-  finalArriveYd: 1.6,
-  /** Braking-distance multiplier before a sharp break (AGI shortens it). */
-  breakWindowBaseYd: 1.25, breakWindowAgiYd: 0.35,
-  breakWindowMinYd: 0.5,
-  breakSpeedCap: 4.0,
-  minPacedSpeed: 1.2,
-  settleDriftSpeed: 1.0,
-  /** Radius searched for zone defenders when settling. */
-  settleScanYd: 14,
-  settleMaxOffsetYd: 4.0,
-  /** Hot conversion: quick slant depth/width. */
-  hotDepthYd: 5, hotInsideYd: 5,
-} as const;
 
 const MIND_WP = 'rtWp';
 const MIND_DONE = 'rtDone';

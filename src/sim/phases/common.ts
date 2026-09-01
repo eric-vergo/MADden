@@ -11,12 +11,13 @@ import { currentLineToGain, PENALTY_YARDS } from '../rules/penalties';
 import { enforceYards, freshToGo, isFirstDown, otherTeam } from '../rules/downs';
 import { clampFieldY } from '../transform';
 import { recordPenalty } from '../stats';
+import { PLAY_TIMING } from '../../data/balance';
 
 /** Overtime periods played before a tie is declared regardless of config. */
-export const MAX_OT_PERIODS = 4; // TODO(balance)
+export const MAX_OT_PERIODS = PLAY_TIMING.maxOtPeriods;
 
 /** Ticks a CPU-only game waits at a break before continuing itself. */
-export const AUTO_CONTINUE_TICKS = 60; // TODO(balance)
+export const AUTO_CONTINUE_TICKS = PLAY_TIMING.autoContinueTicks;
 
 export function hasUser(s: GameState): boolean {
   return s.config.userTeam !== null;
