@@ -1,0 +1,448 @@
+{
+ "confirmed": [
+  {
+   "title": "Overtime ends on any dead ball once both teams have possessed and the score is unequal",
+   "file": "src/sim/phases/playDead.ts",
+   "line": 194,
+   "severity": "critical",
+   "description": "applyOutcome calls overtimeDecided(s, o.scoreKind) after EVERY dead ball, and overtimeDecided (src/sim/rules/scoring.ts:106-111) falls through to 'return s.otPossessions[0] && s.otPossessions[1]' whenever the score is unequal, regardless of whether anything scored on this play. otPossessions[t] is set on team t's first non-kickoff snap (src/sim/phases/preSnap.ts:138), so as soon as the trailing team snaps once, the next whistle ends the game. The 'both teams possessed' gate was meant to qualify a SCORE, not an arbitrary dead ball. It fires in the most common OT script there is: first possession ends in a field goal.",
+   "failureScenario": "Verified end-to-end with a driven sim. OT, team 0 kicks a FG on the opening possession (3-0). Team 1 takes over on its own 25; its first snap sets otPossessions=[true,true]; the play is a 1-yard loss on a run (scoreKind null). PLAY_DEAD -> overtimeDecided(s, null) -> quarter>=5, 3!=0, both possessions true -> true -> GAME_OVER 3-0. The trailing team gets exactly one snap to answer a field goal.",
+   "lens": "rules-vs-football",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. The failure is reachable and I reproduced it in natural, undriven CPU-vs-CPU games.\n\nCode trace:\n- `/Users/eric/MADden/src/sim/phases/playDead.ts:194` \u2014 `applyOutcome` ends with `if (overtimeDecided(s, o.scoreKind)) { e.afterDead = GamePhase.GAME_OVER; ... }`. `applyOutcome` runs on EVERY non-penalty dead ball, not just scoring plays.\n- `/Users/eric/MADden/src/sim/rules/sc",
+     "suggestedFix": "In `/Users/eric/MADden/src/sim/rules/scoring.ts`, make the \"both teams possessed\" gate qualify a score rather than standing in for one \u2014 bail out when nothing scored on the play:\n\nexport function overtimeDecided(s: GameState, lastScoreKind: string | null): boolean {\n  if (s.quarter < 5) return false"
+    }
+   ]
+  },
+  {
+   "title": "Every defensive ball carrier runs the wrong way (INT, fumble, kick and punt returns)",
+   "file": "src/sim/ai/carrier.ts",
+   "line": 168,
+   "severity": "critical",
+   "description": "openFieldTarget defines downfield as {x: 0, y: ctx.dir} and scores probes with progress = (point.y - p.pos2.y) * ctx.dir (line 193). ctx.dir is state.attackDir[offense], where offense is the team that snapped (src/sim/ai/context.ts:69). dispatch routes ANY player holding the ball to updateCarrier (src/sim/ai/index.ts, the p.hasBall branch and case 'carrierAI'), including defenders after an interception or fumble recovery and kick/punt returners. Those carriers steer 180 degrees backwards. stepPlayer never clamps y either (src/sim/physics/movement.ts:80), so they run clean off the back end line.",
+   "failureScenario": "Measured over 8 headless CPU-vs-CPU games: 22 of 22 interception returns went backwards, mean -62.6 yards, 10 of them ending in the interceptor's own end zone (e.g. INT at y=39.7, downed at y=123.1 with attackDir -1, i.e. 3 yards past the end line). Over 4 games, 27 of 27 kickoffs ended as touchbacks: the returner fields it at his own 4, sprints to y=123.3, and is tackled 9 yards deep in his own end zone. Kick returns, punt returns and pick-sixes are effectively impossible.",
+   "lens": "rules-vs-football",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 traced through the code and reproduced empirically.\n\nCode path (exact):\n1. `/Users/eric/MADden/src/sim/ai/context.ts:67-69` \u2014 `const offense = state.possession; const dir: Dir = state.attackDir[offense];`. `state.possession` is only rewritten in the PLAY_DEAD phase (`/Users/eric/MADden/src/sim/phases/playDead.ts:53-79,129-136`); nothing in `playLive.ts` touches it. So for the entire li",
+     "suggestedFix": "Give the AI context a carrier-relative direction and use it wherever the *ball carrier's* downfield is meant, keeping `ctx.dir` for play-frame geometry (routes, gaps, coverage) which is correctly anchored to the snapping offense.\n\n1. In `/Users/eric/MADden/src/sim/ai/context.ts`, add to `AiCtx` and "
+    },
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 traced concretely and reproduced.\n\nMechanism: `makeCtx` (src/sim/ai/context.ts:69) sets `ctx.dir = state.attackDir[state.possession]`. `state.possession` is only mutated by `setSeries`/`setFirstAndTen`, called from the PLAY_DEAD phase (src/sim/phases/playDead.ts:53-79) \u2014 never during a live play. `resolveCatch` on an interception (src/sim/phases/playLive.ts:373-382) writes only `outcom",
+     "suggestedFix": "Do not change `ctx.dir` globally \u2014 routes/coverage/blocking/specialTeams all correctly mean \"the snapping offense's direction\" by it (updateReturner even depends on the kicking-team convention). Fix it inside the carrier brain, where the acting player's own attack direction is what matters.\n\nIn src/"
+    }
+   ]
+  },
+  {
+   "title": "Own-impetus safety is always ruled a touchback on kick or change-of-possession plays",
+   "file": "src/sim/phases/playLive.ts",
+   "line": 861,
+   "severity": "major",
+   "description": "finishPlay's end-zone bookkeeping rules a touchback whenever the dead spot is behind the possessing team's own goal line AND (changeOfPossession || playType is punt || playType is kickoff). Real rule (and the design doc's own 'own-impetus' wording, sim-design.md section 8) is that only impetus from the kick makes it a touchback: a returner or interceptor who gains possession in the field of play and is then downed in his own end zone gives up a safety. The condition as written can never produce a safety on any turnover or kick play. It also mis-rules the kicking team recovering its own blocked punt in its own end zone, awarding them a touchback at their own 20 instead of conceding 2 points.",
+   "failureScenario": "Kickoff returner catches the ball at his own 4 (in the field of play), retreats and is tackled 9 yards deep in his own end zone. The end-zone test is true and playType is 'kickoff' -> TOUCHBACK, receiving team gets 1st and 10 at its own 30 and the kicking team gets 0 points. Correct ruling is a safety: 2 points for the kicking team and a free kick from the 20. Observed on every kickoff in the probe above.",
+   "lens": "rules-vs-football",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 traced through the code and reproduced in an unmodified CPU-vs-CPU game.\n\nCode path (/Users/eric/MADden/src/sim/phases/playLive.ts, finishPlay, lines 857-873):\n```\nconst possDir = s.attackDir[o.possessionAfter];\nconst behindOwnGoal = (o.spotY - ownGoalY(possDir)) * possDir < 0;\nif (!o.touchdown && behindOwnGoal) {\n  if (o.changeOfPossession || o.playType === 'punt' || o.playType === 'k",
+     "suggestedFix": "Rule on impetus, not on play type. Record where possession was gained and use that in finishPlay.\n\n1. In src/sim/rules/ext.ts scratch state add e.g. `possessionGainedBehindOwnGoal: boolean` (reset per play in resetPlayScratch).\n2. Set it at every point possession is gained, using the gaining player'"
+    },
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. Both the rule defect and its reachability check out.\n\n1. Code reads as reported. /Users/eric/MADden/src/sim/phases/playLive.ts:857-873:\n   const behindOwnGoal = (o.spotY - ownGoalY(possDir)) * possDir < 0;\n   if (!o.touchdown && behindOwnGoal) {\n     if (o.changeOfPossession || o.playType === 'punt' || o.playType === 'kickoff') { ...TOUCHBACK... }\n     else { ...safety... ",
+     "suggestedFix": "Rule the end zone by impetus, not by play type. Impetus belongs to the team whose kick or pass put the ball there; a player who gains possession in the field of play supplies his own new impetus.\n\n1. Track where possession was gained. Add a field to SimExt in src/sim/rules/ext.ts, e.g. `gainedInEndZ"
+    }
+   ]
+  },
+  {
+   "title": "spotLabel names the wrong team's territory in Q2, Q4 and overtime",
+   "file": "src/sim/rules/downs.ts",
+   "line": 67,
+   "severity": "major",
+   "description": "spotLabel hardcodes 'low y is home territory' (side = ballOnY < 60 ? homeAbbrev : awayAbbrev). That only holds while attackDir[0] === 1. swapEnds (src/sim/phases/common.ts:34) flips attackDir at every quarter break, so for the whole of Q2, Q4 and OT the home team defends the high-y goal line and every label is attributed to the opposite team. The renderer has a correct implementation of exactly this (territoryTeam/ballOnText in src/render/format.ts:72-95, which derives the side from attackDir[0]); the sim copy was never fixed. spotLabel feeds describeState (downs.ts:85), which produces the play-log text (src/sim/phases/playDead.ts:173) and the accept/decline penalty descriptions the user is prompted with (src/sim/rules/penalties.ts:37), and it is also called directly by the commentary ticker (src/game/PlayByPlay.ts:144).",
+   "failureScenario": "Verified in a driven game. Q2 with attackDir=[-1,1], the play log reads '1st & 10 at HOM 43: pass for 10' while the renderer's own ballOnText for the same ballOnY returns 'AWY 43'. Every Q2/Q4 play-log line, every commentary spot mention ('intercepted at the HOM 34'), and every penalty prompt description names the wrong half of the field.",
+   "lens": "rules-vs-football",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "Confirmed by code tracing and by driving a real game.\n\nPATH: GameSim.ts:52 starts attackDir=[1,-1]. swapEnds (src/sim/phases/common.ts:34) flips both entries and mirrors ballOnY=120-ballOnY; it runs from startNextQuarter (common.ts:91, Q1->Q2 and Q3->Q4), halftimePhase (breaks.ts:108) and startOvertimePeriod (common.ts:108). So attackDir[0]===1 in Q1/Q3 and -1 in Q2/Q4. With attackDir[0]===-1 home",
+     "suggestedFix": "spotLabel cannot derive the side from the `dir` it already gets, because describeState receives the offense's direction, not home's \u2014 it needs the attackDir pair. Keep it inside src/sim (tsconfig.pure.json forbids importing src/render):\n\n  // src/sim/rules/downs.ts\n  export function spotLabel(\n    b"
+    },
+    {
+     "refuted": false,
+     "reasoning": "Confirmed, not refuted. spotLabel (src/sim/rules/downs.ts:60-69) takes no direction argument and hardcodes low-y == home territory. attackDir starts [1,-1] (GameSim.ts:52) and swapEnds (phases/common.ts:34-37) flips it at every quarter break (common.ts:91), at halftime (breaks.ts:108) and at each OT period start (common.ts:108), giving Q1=[1,-1], Q2=[-1,1], Q3=[1,-1], Q4=[-1,1]. types.ts:14 docume",
+     "suggestedFix": "Give spotLabel the information it needs instead of assuming the Q1 orientation, mirroring src/render/format.ts:73-94.\n\nIn src/sim/rules/downs.ts:\n\n  /** Yard-line label for a world y (\"MID 42\", \"AWY 18\"). */\n  export function spotLabel(\n    ballOnY: number,\n    attackDir: readonly [1 | -1, 1 | -1],\n"
+    }
+   ]
+  },
+  {
+   "title": "Pass interference can never be called - no code ever creates a DPI or OPI flag",
+   "file": "src/sim/rules/penalties.ts",
+   "line": 92,
+   "severity": "major",
+   "description": "The DPI spot-foul branch in projectPenalty, the PENALTY_YARDS/PENALTY_LABEL entries, and the balance constants PENALTY.dpiClosingSpeedYdPerSec and PENALTY.opiOnPickContact are all unreachable: the only site in the whole of src that pushes an in-play flag is maybeHoldingOnShed (src/sim/actions.ts:456), which only ever produces 'holding'. Grep for kind: 'dpi' / 'opi' outside types and penalties.ts returns nothing. Design doc section 12 lists both as organic penalties. The same audit shows KICK.fgBlockChanceOnShed, KICK.puntBlockChanceOnShed, KICK.muffChance, KICK.onsideDistMin/Max and PENALTY.offsideVsHardCount are also referenced nowhere in src, so blocked kicks, punt muffs and onside kicks never occur either (config.enableOnside is set to true in src/app/App.ts:257 but nothing reads it).",
+   "failureScenario": "User plays deep safety and tackles a receiver before the ball arrives on a go route, or runs a rub concept that collides a defender. No flag is ever thrown - the only in-play foul the game can produce is offensive holding. Over 3 full headless games the total flag census was {encroachment:3, holding:3, falseStart:2}: zero pass interference, and no way for the user to draw the single most game-changing penalty in football.",
+   "lens": "rules-vs-football",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. Verified by exhaustive tracing plus an empirical run.\n\n1. Flag creation is fully enumerable. The `PenaltyFlag` object literal is constructed at exactly 6 sites in src: actions.ts:449 (`holding`), preSnap.ts:186 (`delayOfGame`), preSnap.ts:201 (`falseStart`, user moves a lineman pre-snap), preSnap.ts:234 (`falseStart`, CPU roll), preSnap.ts:243 (`encroachment`, CPU roll), p",
+     "suggestedFix": "Implement the two spec'd hooks so the existing enforcement machinery becomes reachable. All the downstream plumbing (buildDecision, projectPenalty's dpi spot-foul branch, chooseByEV, PENALTY_DECISION phase, PlayByPlay/format labels) already exists and needs no change.\n\n1. DPI. Add a `maybeDpiOnConta"
+    },
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED. The claim is not just reachable \u2014 it is unconditionally true in every game, and I traced it exhaustively rather than by grep alone.\n\nComplete census of PenaltyFlag construction sites in /Users/eric/MADden/src (there are exactly six, all found via `PenaltyFlag` + `flags.push`):\n- /Users/eric/MADden/src/sim/phases/playCall.ts:119 \u2014 `kind: 'delayOfGame'`, preSnap: true\n- /Users/eric/MADden",
+     "suggestedFix": "Add the two missing in-play flag producers; the enforcement, EV, and UI paths already exist and need no changes.\n\nDPI \u2014 insert a check in the pass-in-flight path (/Users/eric/MADden/src/sim/phases/playLive.ts, in `updateBall` around line 674, or immediately before `resolvePassArrival` at line 404) t"
+    }
+   ]
+  },
+  {
+   "title": "setSeries clobbers ext.ballOnX, so hash spotting never happens",
+   "file": "src/sim/rules/scoring.ts",
+   "line": 45,
+   "severity": "major",
+   "description": "PLAY_DEAD's applyOutcome computes the lateral dead-ball spot first (`o.spotX = snapToHash(o.spotX); e.ballOnX = o.spotX;` at src/sim/phases/playDead.ts:122-123), then calls applySeries -> setFirstAndTen -> setSeries, which unconditionally does `ext(s).ballOnX = DEFAULT_BALL_X` (CENTER_X). The hash spot computed two statements earlier is destroyed on every play from scrimmage, before playCall.ts:137 reads it to build the next PlayState. The whole spotX/snapToHash/ext.ballOnX chain is therefore dead: PlayOutcome.spotX is written in five places in playLive.ts and never survives. Secondary effect: throwAway legality (src/sim/actions.ts:163) measures the tackle box from e.ballOnX, so the box is always centred on the field regardless of where the ball actually is.",
+   "failureScenario": "Run any game. A runner is tackled at x=48 (right sideline); applyOutcome snaps that to HASH_RIGHT_X=29.75 and stores it, then setSeries overwrites it with CENTER_X=26.6665. Probe over 6 full headless games (seeds 1-6): 242,947 PRE_SNAP samples of play.ball.pos2.x \u2014 center 242947, leftHash 0, rightHash 0. Every snap in the game comes from the exact middle of the field, contradicting formations.ts's own authoring note (\"the ball sits on a hash 3 snaps out of 4\").",
+   "lens": "determinism-state",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. The clobber is real, unconditional, and observable in a normal game.\n\n**Static trace (every branch closes):**\n1. `src/sim/phases/playDead.ts:122-123` \u2014 `applyOutcome` computes the lateral dead-ball spot and stores it: `o.spotX = snapToHash(o.spotX); e.ballOnX = o.spotX;`\n2. Immediately after, every branch of `applyOutcome` reaches `setSeries`:\n   - normal scrimmage \u2192 `appl",
+     "suggestedFix": "Stop `setSeries` from touching the lateral spot, and re-center only where the ball genuinely returns to the middle (kickoff and try placements).\n\nIn `src/sim/rules/scoring.ts`:\n\n```ts\n/**\n * Put the ball down for a fresh series.\n * NOTE: does NOT touch ext.ballOnX \u2014 the dead-ball hash spot computed "
+    },
+    {
+     "refuted": false,
+     "reasoning": "NOT REFUTED \u2014 confirmed by code trace and runtime probe.\n\nReachability: this fires on essentially every play of every game, no special input needed. `applyOutcome` (src/sim/phases/playDead.ts:122-123) computes `o.spotX = snapToHash(o.spotX)` and stores it in `e.ballOnX`, then every downstream branch reaches `setSeries` (src/sim/rules/scoring.ts:34-46), which unconditionally does `ext(s).ballOnX = ",
+     "suggestedFix": "Thread the lateral spot through the series setters instead of hard-resetting it, keeping the center reset only where football actually re-centers the ball (kickoffs, PATs).\n\nIn src/sim/rules/scoring.ts:\n\n    export function setSeries(\n      s: GameState,\n      possession: TeamSide,\n      ballOnY: nu"
+    }
+   ]
+  },
+  {
+   "title": "spotLabel ignores attackDir: play-by-play names the wrong team's half in Q2/Q4",
+   "file": "src/sim/rules/downs.ts",
+   "line": 67,
+   "severity": "major",
+   "description": "spotLabel hard-codes `ballOnY < 60 ? homeAbbrev : awayAbbrev`, which is only true while home attacks +y. attackDir flips at the end of Q1, at halftime and at the end of Q3 (common.ts swapEnds), so in Q2 and Q4 home defends the HIGH end and y<60 is the AWAY half. Every yard-line label produced by spotLabel \u2014 the ticker templates 10/15/16 in PlayByPlay and describeState, which is what playDead.ts:173 writes into state.playLog and what penalties.ts puts on both prongs of the penalty prompt \u2014 names the opposite team for half the game. The renderer already has the correct implementation (render/format.ts territoryTeam derives the low/high defender from attackDir), so the HUD and the ticker disagree on screen simultaneously.",
+   "failureScenario": "Headless game seed 4242, Q2 (attackDir = [-1, 1]), ball spotted at y=69.6 after a punt. HUD strip renders `1st & 10 \u00b7 BALL ON AWY 30` while the ticker renders `F. Last8 booms it 39 yards, downed at the HOM 30.` \u2014 same spot, same frame, opposite team. Same inversion appears on every Q2/Q4 entry in state.playLog (e.g. `2nd & 12 at AWY 40` for a drive that is actually at the home 40) and on the accept/decline descriptions in the penalty prompt.",
+   "lens": "determinism-state",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 reproduced end to end in a real headless game, and the \"wrong team\" direction verified independently of the renderer's own helper.\n\nCode path traced:\n1. /Users/eric/MADden/src/sim/rules/downs.ts:67 \u2014 `const side = ballOnY < 60 ? homeAbbrev : awayAbbrev;` \u2014 no attackDir input. The yard NUMBER (line 65) is direction-independent and correct; only the team abbrev is.\n2. /Users/eric/MADden/",
+     "suggestedFix": "Make the label direction-aware and share one implementation with the renderer.\n\nIn /Users/eric/MADden/src/sim/rules/downs.ts, thread home's attack direction (attackDir[0]) through:\n\n    /** Which team's half the spot sits in; `homeDir` is attackDir[0]. */\n    export function spotLabel(\n      ballOnY"
+    },
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. Traced concretely and reproduced in real CPU-vs-CPU games.\n\n**Reachability of the state.** `createInitialState` (src/sim/GameSim.ts:52) starts `attackDir: [1, -1]`. `swapEnds` (src/sim/phases/common.ts:34-37) flips both dirs AND mirrors `ballOnY = 120 - ballOnY`. It is called from `startNextQuarter` (Q1\u2192Q2 and Q3\u2192Q4, common.ts:91), from halftime (breaks.ts:108, Q2\u2192Q3), and",
+     "suggestedFix": "Make the territory side depend on `attackDir`, the way `territoryTeam` already does. `spotLabel` needs the direction pair (not the single possessing-team `dir` that `describeState` already carries \u2014 penalties.ts:71 deliberately passes `fdir` for the flipped-possession prong, and that dir must keep d"
+    }
+   ]
+  },
+  {
+   "title": "Accepted penalties still credit every stat the nullified play produced",
+   "file": "src/sim/phases/playDead.ts",
+   "line": 279,
+   "severity": "major",
+   "description": "finalizePenalty's accept branch builds a `penaltyOnly` outcome (yards 0, no TD, no turnover) and then calls accumulatePlay with the play's full event list. accumulatePlay (src/sim/stats.ts:75) walks `events` unconditionally \u2014 it only gates on playType in the *yardage* switch at line 160. So PASS_THROWN, CATCH, INTERCEPTION, SACK, TACKLE, FUMBLE, KICK_LAUNCHED and FIELD_GOAL/XP_RESULT all post their counters for a play that was wiped off the books. The corruption flows straight into the season: App.recordResult hands state.stats to meta recordGame, and seasonState.accumulate folds every counter into PlayerSeasonStats (and therefore into leaders() and the MVP award).",
+   "failureScenario": "3rd & 8, offense completes a 15-yard pass, offensive holding is flagged mid-play and the CPU defense accepts by EV. The play is replayed from the previous spot with 0 yards, but the box score still shows the QB +1 attempt +1 completion, the receiver +1 target +1 reception, and the tackler +1 tackle. Probe over 30 headless games: 21 accepted holding penalties, 6 of them on plays containing a CATCH and 10 containing a TACKLE. An accepted defensive foul on an intercepted pass likewise charges the QB a passInt and credits the defender a defInt for a pick that was called back.",
+   "lens": "determinism-state",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "Confirmed, not refuted. Traced concretely and reproduced.\n\nPath: resolveDeadBall (playDead.ts:200) picks the first non-preSnap flag when penaltiesEnabled and o.points === 0, builds a decision, and for a CPU decider calls chooseByEV \u2192 finalizePenalty. The accept branch (playDead.ts:248-286) builds penaltyOutcome with playType 'penaltyOnly', yards 0, no TD/turnover, then at line 279 calls accumulate",
+     "suggestedFix": "An accepted penalty nullifies the down, so no player or team counter from that play should post. The accumulatePlay call on the accept branch does nothing useful today (the yardage switch already skips 'penaltyOnly' and turnover is null), so the entire call is harmful-only.\n\nPreferred: guard inside "
+    },
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. Traced the path and reproduced it in a real game loop.\n\nCODE PATH: finalizePenalty (src/sim/phases/playDead.ts:279) passes the nullified play's full event list (e.playEvents) into accumulatePlay. accumulatePlay (src/sim/stats.ts:75) iterates events unconditionally; only the yardage switch at line 160 keys off playType, so 'penaltyOnly' zeroes yards/TDs but leaves PASS_THRO",
+     "suggestedFix": "Gate the event-driven counters on the nullified outcome inside accumulatePlay, so both call sites (and any future one) are covered. In src/sim/stats.ts, before the event loop at line 75:\n\n    if (o.playType !== 'penaltyOnly') {\n      for (const ev of events) { ...existing switch... }\n    }\n\nNothing "
+    }
+   ]
+  },
+  {
+   "title": "Kick meter aim is inverted: Right sends the ball screen-left in both orientations",
+   "file": "src/sim/phases/playLive.ts",
+   "line": 108,
+   "severity": "major",
+   "description": "`handleUserInput` maps held Left to `aimOffset -= 0.004` and Right to `+= 0.004`. `launchKick` (playLive.ts:246-248) turns that into `heading = (dir===1 ? PI/2 : -PI/2) + aim`, so a POSITIVE aim yields world velX = cos(PI/2+a) = -sin(a) < 0 when dir=+1, and cos(-PI/2+a) = +sin(a) > 0 when dir=-1. The camera flips with the same dir (Camera.setOrientation / toScreenX axisSign, Camera.ts:80,148), so in BOTH orientations a positive aimOffset moves the ball toward screen-LEFT. Meanwhile the HUD aim arrow (EffectsRenderer.ts:335-337, `cx = x + w/2 + aim*...`) moves RIGHT for a positive offset. Arrow, key and ball all disagree. Every user-taken FG/XP/punt/kickoff is affected: chooseControlled hands the user the K/P on kick plays, so preSnap.ts:122 sets `kick.auto = false` (manual meter). This is not a sign convention that cancels with the flip \u2014 it is inverted in both halves of the game.",
+   "failureScenario": "User lines up a 40-yard field goal from the left hash and holds Right to aim back toward the middle. Probe (Camera + launch math, dir=+1 and dir=-1, aim=+0.1): worldVelX = -0.100 / +0.100 respectively, screen delta = -1.67 px in BOTH cases \u2014 the ball drifts LEFT while the on-screen yellow aim triangle sits to the RIGHT of centre. The kick misses wide left when the player asked for right.",
+   "lens": "user-control",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. I traced the path and then reproduced it end to end by driving a real `GameSim` (user team 0, forced 4th down, `fg-attempt` selected, real `InputFrame`s) with vite-node, using the real `Camera` for the world\u2192screen check. No repo files were modified (probe lives in the scratchpad).\n\nChain, verified link by link:\n\n1. `/Users/eric/MADden/src/sim/phases/playCall.ts:53-55` \u2014 `",
+     "suggestedFix": "Negate the manual offset where it is turned into a heading, leaving the random accuracy error untouched.\n\n/Users/eric/MADden/src/sim/phases/playLive.ts:246\n\n    -  const aim = aimErrorRad(signed, km.aimOffset);\n    +  // aimOffset is in SCREEN space (held Left/Right are not flipped by\n    +  // Game"
+    },
+    {
+     "refuted": false,
+     "reasoning": "NOT REFUTED \u2014 verified concretely end-to-end, including a live-sim probe.\n\nChain, all read in source:\n1. src/input/Bindings.ts:104-107 \u2014 the KICK_METER context overrides only Space/Escape; Left/Right fall through to GLOBAL (ArrowLeft/KeyA = Left, ArrowRight/KeyD = Right). The comment there states the intent explicitly: \"Left/Right aim comes from GLOBAL\".\n2. src/game/GameSession.ts:519-529 \u2014 orient",
+     "suggestedFix": "Single-site fix in src/sim/phases/playLive.ts:248 \u2014 subtract the aim instead of adding it:\n\n    const heading = (dir === 1 ? Math.PI / 2 : -Math.PI / 2) - aim;\n\nCheck: dir=+1 (camera axisSign +1) => velX = cos(PI/2 - aim) = +sin(aim) > 0 => screen right. dir=-1 (camera axisSign -1) => velX = cos(-PI"
+    }
+   ]
+  },
+  {
+   "title": "Human on defense stalling in the play-call menu flags the CPU offense for delay of game",
+   "file": "src/sim/phases/playCall.ts",
+   "line": 120,
+   "severity": "major",
+   "description": "`playCallPhase` runs the play clock while the DOM play-call overlay is open (the sim is never paused for it \u2014 App only pauses for the 'pause' screen). On expiry it flags delay of game whenever EITHER side has not called: `if (s.selectedOffensePlayId === null || s.selectedDefensePlayId === null)` and hard-codes `team: offense`. When the user is on defense the CPU offense has already sent its call in (cpuOffenseCallTick), so the only null is `selectedDefensePlayId` \u2014 the human's \u2014 yet the 5-yard walk-off is charged to the CPU offense. `enforceDeadBallFoul` then stops the game clock, resets the play clock to 40 and returns to PLAY_CALL, so the loop repeats indefinitely at zero game-clock cost. tests/sim-core/userControl.test.ts:112 only exercises the user-on-offense branch, so this path is untested.",
+   "failureScenario": "Probe (GameSim, userTeam=0, user calls its own offense but never a defense): at tick 2133 the sim emits `{type:'PENALTY_ENFORCED', kind:'delayOfGame', team:1, yards:1.94}` with possession=1 \u2014 the ball moves from y=106.13 to y=108.06, i.e. backwards for the CPU offense, purely because the human never picked a defensive call. Repeat for 5 free yards per 40 seconds of real time with the clock stopped.",
+   "lens": "user-control",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "Confirmed, and reproduced with a headless probe. The full chain traces concretely:\n\n1. The sim is NOT paused for the play-call overlay. App.syncInput (/Users/eric/MADden/src/app/App.ts:168-180) pauses the session only when `this.manager.has('pause')`; PlayCallScreen is a different overlay pushed by openPlayCall (App.ts:398-405). GameLoop keeps calling session.stepOneTick() (App.ts:107). App.ts:144",
+     "suggestedFix": "Attribute the flag to the side that actually failed to call. enforceDeadBallFoul already handles a defensive dead-ball foul correctly (againstOffense is derived from flag.team, and it awards a first down when the walk-off crosses the line to gain), so the change is local to /Users/eric/MADden/src/si"
+    }
+   ]
+  },
+  {
+   "title": "Tab (switch defender) is silently dropped for 90 ticks when your defender is pancaked",
+   "file": "src/sim/phases/playLive.ts",
+   "line": 93,
+   "severity": "major",
+   "description": "`handleUserInput` bails out with `if (me === undefined || me.anim === 'down') return;` BEFORE the `for (const c of input.commands)` loop at line 96 that applies SWITCH_CONTROLLED. PLAY_LIVE has no other consumer of that command, and GameSession discards `this.queued` every tick (GameSession.ts:370-372), so the command is destroyed, not deferred. A user-controlled rusher who loses a block contest by more than BLOCK.pancakeMargin gets `anim='down'` with `stateTimer = BLOCK.pancakeDownTicks = 90` (ai/blocking.ts:241-243), cleared only by `runOwnedTimers` (ai/index.ts:174-178). For a full 1.5 seconds \u2014 a large fraction of a pass play \u2014 the user cannot move, cannot dive, and every Tab press vanishes with no feedback. GameSession.switchToNearestDefender even filters out `anim === 'down'` candidates, showing switching was meant to still work.",
+   "failureScenario": "Probe (GameSim, userTeam=0 on defense in PLAY_LIVE, controlledIdx=16): set `players[16].anim='down'; stateTimer=90; mind.aiTimer=1` (exactly what resolveContest does on a pancake), then tick with `pressed:{SwitchPlayer}` and `commands:[{type:'SWITCH_CONTROLLED', playerIdx:12}]`. controlledIdx after the tick is still 16, not 12. The player mashes Tab while flattened and stays glued to the man on the ground until the timer runs out.",
+   "lens": "user-control",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "Confirmed, not refuted \u2014 traced concretely and reproduced in a full simulated game.\n\nPath: playLive.ts:93 returns from handleUserInput before the command loop at line 96, which is the ONLY consumer of SWITCH_CONTROLLED during PLAY_LIVE (verified by grepping every `input.commands` loop in src/sim: coinToss.ts:28, breaks.ts:19/43/69/132, playCall.ts:89, preSnap.ts:161, playLive.ts:96). GameSession.s",
+     "suggestedFix": "In src/sim/phases/playLive.ts handleUserInput, hoist the command loop above the incapacitation bail so control switching is never phase-dropped, and re-read the controlled player afterwards so the newly selected defender gets this tick's movement:\n\n  const e = ext(s);\n  for (const c of input.command"
+    },
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. I traced the whole chain in code and then reproduced it end-to-end through the real GameSession (not a hand-poked state).\n\nCode trace:\n1. Pancake: /Users/eric/MADden/src/sim/ai/blocking.ts:240-245 \u2014 when `margin > BLOCK.pancakeMargin` the DEFENDER gets `anim='down'`, `stateTimer = BLOCK.pancakeDownTicks`, `mind.aiTimer=1`. balance.ts:34-35 gives pancakeMargin=25, pancakeDo",
+     "suggestedFix": "Hoist the command loop above the incapacitation guard in `handleUserInput` (/Users/eric/MADden/src/sim/phases/playLive.ts:90-102), keeping `idx` captured BEFORE the loop so the rest of the tick still applies to the pre-switch player (same semantics as today for a live defender, and no determinism ch"
+    }
+   ]
+  },
+  {
+   "title": "Pause-menu \"Call Timeout\" is a silent no-op during a live play or the dead-ball beat",
+   "file": "src/ui/screens/PauseScreen.ts",
+   "line": 41,
+   "severity": "major",
+   "description": "The pause menu's timeout entry is enabled purely on `timeoutsRemaining() > 0`, runs `services.requestTimeout()`, plays the `timeoutHorn` blip and pops itself. That routes to `GameSession.requestTimeout()` (GameSession.ts:291-295), which queues an unconditional `{type:'TIMEOUT'}` SimCommand. Only two phase handlers read TIMEOUT: playCall.ts:93 and preSnap.ts:162. `playLivePhase` handles only RETURN_DECISION and SWITCH_CONTROLLED, and `playDeadPhase` does `void input` (playDead.ts:336). Because GameSession swaps `this.queued` out every tick the command is dropped, not held. Escape reaches the pause menu from every live context (Bindings PRE_SNAP_OFF/QB_PASSING/BALL_CARRIER/DEFENSE/KICK_METER/RETURN_WAIT map Escape to Pause) and from PLAY_DEAD via the MENU-context Back path (GameSession.ts:581-584). PLAY_DEAD lasts PLAY_TIMING.deadPauseTicks = 90 ticks \u2014 precisely when a real timeout would be called.",
+   "failureScenario": "4th-and-1, 0:35 left, clock running after a tackle. Player hits Esc during PLAY_DEAD, selects \"Call Timeout (2)\", hears the horn, the menu closes. `s.timeouts[user]` is unchanged, `clockRunning` is still true and `playClockSec` is not reset to 25 \u2014 the timeout was never charged and the clock never stopped. The HUD still shows 2 timeouts, so the player believes it worked and loses the drive.",
+   "lens": "user-control",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED \u2014 not refuted. The path traces concretely and I reproduced it headlessly.\n\nMechanism: `GameSim.tick` (/Users/eric/MADden/src/sim/GameSim.ts:86) runs exactly one phase handler per tick and hands it `input.commands`. Only `playCallPhase` (playCall.ts:93) and `preSnapPhase` (preSnap.ts:162) read `{type:'TIMEOUT'}`. `playLivePhase` reads only RETURN_DECISION and SWITCH_CONTROLLED (playLive.t",
+     "suggestedFix": "Two parts; the first makes the button work in the case that matters, the second stops the false confirmation where a timeout is genuinely impossible.\n\n1) Hold the request until a phase that honors it, instead of firing once into the void. In /Users/eric/MADden/src/game/GameSession.ts:\n\n  private pen"
+    },
+    {
+     "refuted": false,
+     "reasoning": "NOT REFUTED \u2014 I traced it end-to-end and confirmed it with runnable probes (scratchpad only; the repo was not modified).\n\nCode trace, all confirmed:\n- /Users/eric/MADden/src/ui/screens/PauseScreen.ts:37-45 \u2014 the entry is gated only on `this.services.timeoutsRemaining() > 0`, then unconditionally runs `requestTimeout()`, `this.blip('timeoutHorn')`, `this.manager.pop()`.\n- /Users/eric/MADden/src/app",
+     "suggestedFix": "Two layers; do at least the first.\n\n1) Make the affordance honest. Add a phase-aware predicate rather than a raw count. In GameSession:\n\n    canCallTimeout(): boolean {\n      const s = this.sim.state;\n      const user = s.config.userTeam;\n      if (user === null || s.timeouts[user] <= 0) return fals"
+    }
+   ]
+  },
+  {
+   "title": "On kick and punt returns the user is handed a return blocker (MLB1), never the returner",
+   "file": "src/sim/phases/playCall.ts",
+   "line": 62,
+   "severity": "major",
+   "description": "`chooseControlled` picks the user's defensive player from `preferred = ['MLB1','LOLB','ROLB','SS','FS','LE','PR','KR']`, first match wins. Both return units contain MLB1 (`st-kick-return-unit` and `st-punt-return-unit`, data/plays/defense.ts:381-404), so MLB1 always matches and the trailing 'PR'/'KR' entries are unreachable \u2014 dead entries that document the intended behaviour. The offense branch of the same function explicitly hands the user the K/P on kick plays (\"On a kick the user works the meter\"), so the receiving-side omission is clearly unintended. Consequences: (a) the whole RETURN_WAIT context \u2014 fair catch, and the move-to-return decision at GameSession.ts:597-603 \u2014 is played from a blocker 25+ yards from the ball; (b) SwitchPlayer is NOT bound in RETURN_WAIT (Bindings.ts:110-115 has only KeyF and Shift; Tab is not in GLOBAL), so the user cannot take the returner while the kick is airborne; (c) after the catch the context becomes DEFENSE and the AI, not the user, runs the ball back until the user discovers Tab.",
+   "failureScenario": "Probe (GameSim, userTeam=0, user elects to receive, defense calls st-kick-return-unit): at PRE_SNAP of the opening kickoff, possession=1, offensePlay.type='kickoff', `play.controlledIdx = 16` whose role is 'MLB1' \u2014 not KR. The player watches the AI field and return the opening kickoff while their arrow keys drive a blocker, and Tab does nothing until the ball is caught.",
+   "lens": "user-control",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "Confirmed by direct code tracing and a runnable probe (headless GameSession harness, userTeam=0, seed 4242, opening kickoff). At PRE_SNAP: possession=1, offensePlay='kickoff-deep' (type 'kickoff'), defensePlay='st-kick-return-unit', play.controlledIdx=16, whose role is 'MLB1' with assignment 'returnBlock'; the returner is index 21 ('KR', assignment 'returner').\n\nSub-claims all verified:\n1. chooseC",
+     "suggestedFix": "Primary fix \u2014 in `chooseControlled` (/Users/eric/MADden/src/sim/phases/playCall.ts:62), take the returner before falling back to the role-preference list:\n\n```ts\n  // On a return the user fields the ball, not the wedge.\n  for (let i = 11; i < play.players.length; i++) {\n    if (play.players[i]?.assi"
+    },
+    {
+     "refuted": false,
+     "reasoning": "Confirmed by code trace and a headless probe, not refuted.\n\nCode trace: chooseControlled (src/sim/phases/playCall.ts:62) scans preferred = ['MLB1','LOLB','ROLB','SS','FS','LE','PR','KR'] and returns the first defensive match. grep over src/data/plays/defense.ts shows exactly two plays with a returner \u2014 st-kick-return-unit (:377-389) and st-punt-return-unit (:391-405) \u2014 and BOTH assign MLB1 (and LE",
+     "suggestedFix": "In src/sim/phases/playCall.ts, make the defensive branch of chooseControlled prefer the actual returner before falling back to the linebacker list. The AI already locates the returner this way (src/sim/ai/specialTeams.ts:128):\n\n  // The receiving user fields the kick \u2014 the returner, not a return blo"
+    }
+   ]
+  },
+  {
+   "title": "Standings tab re-sorts without head-to-head, contradicting the playoff bracket",
+   "file": "src/ui/tables.ts",
+   "line": 83,
+   "severity": "major",
+   "description": "`standingsOf()` (src/meta/seasonState.ts:86) hands the hub a list already sorted by the real tiebreaker ladder \u2014 win% \u2192 head-to-head (2-team ties) \u2192 division win% \u2192 point diff \u2192 seeded coin. `buildStandings` throws that order away at line 83 (`[...rows].sort(compareStandingRows)`) and re-sorts with `compareStandingRows` (line 49), which has NO head-to-head and NO coin key and falls back to alphabetical teamId. So the Standings tab's division order can disagree with the order `seedConference`/`createBracket` actually use for seeding. The doc comment at tables.ts:43\u201348 asserts the hub \"renders whatever order the meta layer hands it when it supplies a pre-sorted list\" \u2014 line 83 makes that false. Measured over 60 seeded seasons, 8 of 240 divisions came out in a different order in the UI than in the meta layer (\u22481 season in 8 has at least one wrong division).",
+   "failureScenario": "League seed 36, played to week 14. Atlantic North finishes COB 10-4 (div 4-2, +106) and BAY 10-4 (div 4-2, +112); COB swept BAY 2-0 head-to-head. The Standings tab lists BAY above COB (point differential wins in compareStandingRows), so BAY reads as the division winner. The Bracket tab, built from sortStandings, seeds COB #1 hosting the semifinal (EMB@COB) and BAY #3 as a wildcard travelling to GRA. The two tabs of the same screen disagree about who won the division and who is seeded where.",
+   "lens": "season-meta",
+   "confirmed": true,
+   "votes": [
+    {
+     "refuted": false,
+     "reasoning": "Reproduced against the real sim, no repo changes. Path is concrete: SeasonHubScreen.renderStandings (src/ui/screens/SeasonHubScreen.ts:193) passes services.getStandings() -> standingsOf(season) (src/game/services.ts:289) into buildStandings, which at src/ui/tables.ts:83 does [...rows].sort(compareStandingRows). compareStandingRows never returns 0 for distinct teams (final key is alphabetical teamI",
+     "suggestedFix": "Two independent defects, both worth fixing:\n\n1. tables.ts:83 - stop discarding a pre-sorted list. Give buildStandings an explicit option (e.g. StandingsOptions.preSorted) and skip the sort when set, or better, have the hub ask the meta layer for division-scoped order. src/meta/standings.ts already e"
+    },
+    {
+     "refuted": false,
+     "reasoning": "CONFIRMED as a real, reachable, user-visible bug \u2014 but the finding's root-cause attribution is wrong for the case it exhibits.\n\nREACHABILITY. I played 200 full regular seasons through the real reducer path (createSeason -> simWeek -> advanceWeek x14, i.e. the in-game SIM WEEK button) and compared the Standings tab order (SeasonHubScreen.renderStandings, src/ui/screens/SeasonHubScreen.ts:193 -> bui",
+     "suggestedFix": "Two changes are needed; fixing only tables.ts:83 leaves 12 of the 17 observed divergences (including the seed-36 example) in place.\n\n1) Make the hub consume a division-scoped order produced by the SAME code the bracket uses. Add a query to src/meta/seasonState.ts, e.g.\n\n  export function divisionOrd"
+    }
+   ]
+  }
+ ],
+ "minors": [
+  {
+   "title": "Delay of game is charged to the offense even when the defense never called a play",
+   "file": "src/sim/phases/playCall.ts",
+   "line": 120,
+   "severity": "minor",
+   "description": "When the play clock expires in PLAY_CALL, the flag is built with team: offense if EITHER selection is still null. The CPU always sends its call within cpuCallMinTicks (18) + jitter (14) ticks, so the only way this branch fires with a missing defensive call is a human on defense who has not picked. The penalty then moves the CPU offense back 5 yards and replays the down, benefitting the team that actually stalled. Nothing pauses the sim during play selection (App.ts only pauses on the 'pause' screen), so the play clock really does run out on the play-call screen.",
+   "failureScenario": "User is team 1 (defense). CPU offense has 2nd & 6 at midfield and submits its call at tick+~25. User leaves the play-call screen open until the 40-second play clock hits 0. enforceDeadBallFoul fires with team = offense: the CPU is flagged for delay of game, loses 5 yards, and replays 2nd down. Repeatable every play, half-the-distance all the way back.",
+   "lens": "rules-vs-football"
+  },
+  {
+   "title": "Interception fumbled back to the passing team does not reset the down series",
+   "file": "src/sim/phases/playDead.ts",
+   "line": 52,
+   "severity": "minor",
+   "description": "resolveLooseBall sets o.changeOfPossession = pl.team !== e.playOffense (src/sim/phases/playLive.ts:544), so when the passing team recovers a fumble by the interceptor, changeOfPossession goes back to false. applySeries then skips the setFirstAndTen branch and instead advances the down using e.prePlay.down + 1 and the pre-play line to gain. Real football: possession changed twice, so the recovering team starts a fresh 1st and 10 at the recovery spot. o.turnover also stays 'int' while possessionAfter is the offense, so clockAfterPlay treats it as a turnover stop and the play is logged and counted as a turnover for a team that still has the ball.",
+   "failureScenario": "Team A, 1st & 10 from its own 25 (line to gain = own 35). Pass intercepted at A's own 25; the interceptor is stripped immediately and A's receiver recovers at A's own 22. applySeries: changeOfPossession false, isFirstDown(22 vs 35) false -> down 2, toGo 13. Result shown is '2nd & 13 at A 22' instead of the correct '1st & 10 at A 22'.",
+   "lens": "rules-vs-football"
+  },
+  {
+   "title": "Defensive two-point return credits the 2 points to the team that attempted the try",
+   "file": "src/sim/phases/playDead.ts",
+   "line": 144,
+   "severity": "minor",
+   "description": "checkCarrierBoundaries (src/sim/phases/playLive.ts:742-748) sets o.scoreKind='two', o.points=2 and emits TWO_POINT_RESULT with team = c.team whenever ANY carrier reaches his attack goal on a twoPoint play, including a defender returning an interception. applyOutcome then does addPoints(s, offense, 2) with offense = e.playOffense, i.e. the team that was attempting the conversion, so the scoreboard, stats.teams[].points and scoringByQuarter all credit the wrong team while the emitted event named the other one. The pick-six path handles this correctly (scoreKind 'td' uses o.possessionAfter, line 129), so only the conversion branch is wrong.",
+   "failureScenario": "Team A goes for two from the 2. A's QB is intercepted and the defender returns it to team B's attack end zone. TWO_POINT_RESULT fires with team = B (good: true), but addPoints(s, offense=A, 2) puts 2 points on A's side of the scoreboard. Note this is currently masked by the wrong-way carrier bug (finding 2) and by the 12-second safety whistle, so it will only surface once returns work.",
+   "lens": "rules-vs-football"
+  },
+  {
+   "title": "Third-down touchdowns count as attempts but never as conversions",
+   "file": "src/sim/phases/playDead.ts",
+   "line": 167,
+   "severity": "minor",
+   "description": "applyOutcome only sets `firstDown` from applySeries, which runs in the final `else` branch. When o.scoreKind === 'td' the function takes the touchdown branch (addPoints / nextPlayKind = 'pat') and applySeries is never called, so `firstDown` stays false. The third-down bookkeeping at line 166-168 still fires because isScrimmagePlay(o) is true and prePlay.down === 3, so recordThirdDown(s, offense, false) increments thirdDownAtt without thirdDownConv. Every third-down touchdown is recorded as a failed conversion.",
+   "failureScenario": "3rd & 6 from the 12, receiver catches it for a touchdown. stats.teams[offense].thirdDownAtt += 1, thirdDownConv unchanged. Probe over 20 headless games: 25 third-down touchdowns, 0 counted as conversions \u2014 the box score reports 101/427 (23.7%) where the true figure is 126/427 (29.5%).",
+   "lens": "determinism-state"
+  },
+  {
+   "title": "Ticker names the returner (or nobody) as the kicker/punter",
+   "file": "src/game/PlayByPlay.ts",
+   "line": 350,
+   "severity": "minor",
+   "description": "describePlay fills templates 13/14 ({kicker}) and 15 ({punter}) from `carrier = this.nameOf(state, ev.carrierIdx)`. PLAY_RESULT.carrierIdx is never the kicker: for a placekick resolveFieldGoal sets spotFixed without ever assigning o.carrierIdx, so it stays null and nameOf returns the literal fallback string 'the runner'; for a punt, resolveKickReception (playLive.ts:521) sets o.carrierIdx to the *receiving team's* returner. The kicker index is available (ext.kick.kickerIdx / KICK_LAUNCHED.kickerIdx) but is not carried on the event.",
+   "failureScenario": "Headless game seed 4242 produces these live ticker lines verbatim: `the runner's 49-yarder is NO GOOD, wide and short.` (Q4 field goal \u2014 kicker name missing entirely) and `F. Last8 booms it 39 yards, downed at the HOM 30.` where F. Last8 is the receiving team's WR3 punt returner, not the punter (Last40). Every field goal, extra point and punt call-out in the game credits the wrong player.",
+   "lens": "determinism-state"
+  },
+  {
+   "title": "Aiming a kick also walks the kicker sideways, moving the launch point ~5 yards",
+   "file": "src/sim/phases/playLive.ts",
+   "line": 121,
+   "severity": "minor",
+   "description": "In the KICK_METER context Left/Right feed BOTH the aim accumulator (lines 108-109) and, unfiltered, the ordinary movement block at lines 118-126, which calls `stepPlayer(me, ...)` at full `maxSpeed`. The controlled player on a kick play is the K/P (playCall.ts:50-56) and `updateLiveAI` skips the controlled index, so nothing pulls him back. The meter lasts up to KICK.meterFillTicks + meterSweepTicks = 100 ticks while aimOffset saturates at KICK.aimMaxOffsetRad=0.26 after only ~65 ticks, so the remaining hold is pure lateral drift. On a punt or kickoff the kicker is also the ball carrier, so `carryBall` drags the ball with him and `launchKick` reads `from.x = p.ball.pos2.x` (playLive.ts:265-267) \u2014 the launch x moves with the drift while `spotY` stays pinned at the snap, so the ball visibly jumps back in y at release.",
+   "failureScenario": "Probe (GameSim, userTeam=0 kicking off, holding Right + move {x:1,y:0} through the three meter presses): the kicker walks from x=26.67 to x=31.82 (5.15 yd of drift) and the ball launches from x=32.10 instead of the 26.67 centre \u2014 a 5.4-yard lateral displacement the player never asked for. Aim hard toward one sideline on a punt and the punter is in the numbers before he strikes the ball.",
+   "lens": "user-control"
+  },
+  {
+   "title": "Settings advertises \"H - Hard count\" but PRE_SNAP_OFF has no working input except Snap",
+   "file": "src/input/Bindings.ts",
+   "line": 60,
+   "severity": "minor",
+   "description": "`GameAction.HardCount` is bound to KeyH in PRE_SNAP_OFF and shown to the player on the settings key reference (SettingsScreen.ts:18, `['H', 'Hard count']`). Nothing in src/ ever reads it \u2014 grepping `GameAction.HardCount` outside Bindings/types returns nothing, and `PENALTY.offsideVsHardCount` (balance.ts:177) is likewise unreferenced, so the feature reached the bindings and the balance table but never the sim. The same holds for `GameAction.PumpFake` (Space in QB_PASSING) \u2014 bound and labelled, never read. Pre-snap directional input is also inert: `updatePreSnapAI` skips the controlled player and `preSnapPhase` never integrates anyone, and the false-start check at preSnap.ts:196-208 requires an OL to be controlled, which `chooseControlled` never does for the user (always QB/K/P on offense).",
+   "failureScenario": "Player reads the settings key reference, lines up on 3rd-and-2 and holds H to draw the defense offside. No FLAG event, no play-clock effect, no audio \u2014 nothing happens. Pressing an arrow key pre-snap also does nothing (no motion, and no false start either), so there is no way to distinguish a dead key from a mistimed one.",
+   "lens": "user-control"
+  },
+  {
+   "title": "Field-goal \"wide left/right\" uses world x, so it is backwards for a team attacking -y",
+   "file": "src/sim/phases/playLive.ts",
+   "line": 585,
+   "severity": "minor",
+   "description": "`resolveFieldGoal` reports `missSide = x < CENTER_X ? 'left' : 'right'` from the raw world x of the crossing point, with no reference to `s.attackDir[e.playOffense]`. \"Wide left\" is a kicker-relative call: for a team attacking +y the kicker's left is world -x (correct here), but for a team attacking -y the kicker's left is world +x, so the label inverts. Since `swapEnds` flips attackDir every quarter, each team spends half the game on the wrong side of this test. The value flows straight into PlayByPlay (`this.lastFgSide = ev.missSide`, PlayByPlay.ts:202, consumed at line 357) while the user's camera is flipped to match their own attack direction (Renderer.ts:79 `cam.setOrientation(extras.viewAttackDir)`), so the commentary contradicts what the player just watched.",
+   "failureScenario": "User's team attacks -y in Q2 and hooks a 45-yarder so the ball crosses the plane at x = 20 (world -x, which with the flipped camera renders on the RIGHT of the screen and is the kicker's right). The event carries `missSide:'left'` and the play-by-play reads \"no good, wide left\" while the player watched it sail wide right.",
+   "lens": "user-control"
+  },
+  {
+   "title": "Hub shows an unrelated AI game as the user's matchup once the user is eliminated",
+   "file": "src/game/services.ts",
+   "line": 342,
+   "severity": "minor",
+   "description": "`getNextGame` falls back to `const target = userGame ?? games[0]` when the user's team has no game in the current week, then computes `opponentId`, `userIsHome` and `opponentRecord` from that stranger's game as if the user were in it. SeasonHubScreen.renderOverview (line 108) likewise falls back to `next.weekGames[0]` for the matchup card and prints \"Your game is in the books \u2014 sim the rest of the week\" (line 135), which is wrong \u2014 the user is eliminated, not finished. This fires for every user who misses the playoffs or loses a playoff round, i.e. at least half of all seasons (8 of 16 teams miss).",
+   "failureScenario": "League seed 11, ASH finishes 2-12 and misses the playoffs. Advancing to week 15 the Overview tab reads \"Next up \u00b7 CONFERENCE SEMIFINALS\", shows DUN @ FAI as the matchup card, and prints \"You: 2-12 \u00b7 Opponent: 10-4 \u00b7 Away\" \u2014 FAI is not ASH's opponent and ASH is not playing at all \u2014 plus the footnote claiming the user's game is in the books. Verified across 5 of 6 sampled seeds.",
+   "lens": "season-meta"
+  },
+  {
+   "title": "Midfield logo and letter change teams at every quarter break",
+   "file": "src/render/FieldRenderer.ts",
+   "line": 78,
+   "severity": "minor",
+   "description": "fieldThemeFromTeams derives `midfieldLogo: low.logo` and `midfieldLetter: low.city[0]` from lowDefender, which is computed from attackDir[0]. End-zone assignment from attackDir is correct (teams do change ends), but the logo painted at the 50 is stadium paint and must not move. swapEnds() flips attackDir each quarter, so lowDefender alternates 0,1,0,1 across Q1-Q4 and the midfield disc repaints with the other team's logo. fieldThemeKey includes the logo params, so FieldRenderer.ensure rebuilds the whole offscreen surface with the new logo. Verified: fieldThemeFromTeams(teams, [1,-1]).midfieldLogo is the home spec ('bolt', letter 'H'); with [-1,1] it is the away spec ('star', letter 'A').",
+   "failureScenario": "Exhibition, Harbor (home) vs Ashford (away). Q1 shows Harbor's bolt logo at midfield. At the Q1/Q2 quarter break the camera flips and the same midfield disc now shows Ashford's star logo; it flips back for Q3 and away again for Q4.",
+   "lens": "render-hud"
+  },
+  {
+   "title": "Replay says \"ANY KEY TO SKIP\" but only arrows/WASD/Enter/Esc skip",
+   "file": "src/render/EffectsRenderer.ts",
+   "line": 392,
+   "severity": "minor",
+   "description": "drawReplayFrame prints the fixed hint 'ANY KEY TO SKIP'. GameSession.stepReplay (src/game/GameSession.ts:476-481) skips only when the sampled InputFrame has a non-empty `pressed` set, and InputSystem.sample resolves codes through the REPLAY binding scope, which is empty (src/input/Bindings.ts:118) and falls through to GLOBAL - arrows, WASD, Enter/NumpadEnter and Escape only. Space, Tab, digits and every other letter resolve to undefined and never produce a pressed action, so they do nothing. The binding file's own comment (\"Esc/Enter skip a replay\") acknowledges the narrow set the overlay text contradicts.",
+   "failureScenario": "A 40-yard touchdown triggers a replay that runs 240 recorded frames at 0.5x = 8 seconds of screen time. The player, who has been using Space all game for snap/dive/kick-meter, taps Space repeatedly to skip as the overlay instructs; nothing happens and they sit through the full replay.",
+   "lens": "render-hud"
+  },
+  {
+   "title": "Kick meter drawn from the snapshot: shows for kicks the viewer cannot control",
+   "file": "src/render/Renderer.ts",
+   "line": 107,
+   "severity": "minor",
+   "description": "Renderer.draw sources the overlay's kick meter from `curr.kickMeter` (the TickSnapshot) rather than from RendererExtras, and EffectsRenderer.drawOverlay draws it whenever `active` is true (line 257). preSnap.ts:123 sets kickMeter.active = true for every kick play regardless of which team is kicking or whether the kicker is user-controlled, and GameSim.snapshot publishes it unconditionally. Consequently the POWER/ACCURACY meter with its aim arrow is drawn during the opponent's punts, field goals and kickoffs, and during CPU-auto kicks by the user's own team. It is also the one overlay GameSession.replayExtras (src/game/GameSession.ts:883-902) cannot switch off - every other live overlay is nulled there, but a replay whose trimmed frame window includes the pre-launch ticks of a kick will draw the meter on top of the letterboxed replay.",
+   "failureScenario": "CPU punts to the user. The user, waiting in RETURN_WAIT to field the ball, sees a full-width POWER meter with a yellow aim arrow appear at the bottom of the screen, fill and lock itself, with no input of theirs having any effect on it.",
+   "lens": "render-hud"
+  },
+  {
+   "title": "Effects list never cleared between games: old bursts replay in the next game",
+   "file": "src/game/GameSession.ts",
+   "line": 263,
+   "severity": "minor",
+   "description": "App owns one Renderer (and therefore one EffectsRenderer) for the whole session and hands it to every GameSession (src/app/App.ts:102, 269). GameSession.dispose() resets zoom, audio, play-by-play and the replay buffer but never calls renderer.effects.clear() - that method has no caller outside src/render/demo.ts. Effects are timed in absolute sim ticks: EffectsRenderer.prune keeps an entry unless `tick - startTick > ttl`, and drawWorld skips it while `age < 0`. A new GameSim starts at tick 0, so any effect left over from the previous game (startTick in the thousands) is neither pruned nor drawn - until the new game's tick reaches that value, at which point it draws again at the old game's world coordinates. Up to EFFECT_STYLE.maxEffects = 48 entries can survive this way.",
+   "failureScenario": "Exhibition. A big hit at tick 3600 emits a 'bigHit' burst; the player hits Esc within the next 26 ticks (pause freezes stepOneTick but render/prune keeps running with the frozen tick, so the entry never ages out) and chooses Restart. About 60 seconds into the restarted game, at tick 3600, a yellow starburst pops on empty grass at the previous game's tackle spot.",
+   "lens": "render-hud"
+  },
+  {
+   "title": "HUD shows the previous play's down, distance and spot through the PAT choice",
+   "file": "src/render/HudRenderer.ts",
+   "line": 193,
+   "severity": "minor",
+   "description": "drawSituation suppresses the down-and-distance/BALL ON strip only for GamePhase.GAME_OVER. During POINT_AFTER_CHOICE the sim has not yet run setupPat(), so state.down/toGo/ballOnY still hold the pre-touchdown series, and the strip renders stale numbers. Overlay screens use `background: rgba(3,6,11,0.72)` (src/ui/styles.ts:53), so the strip stays legible under the PAT modal. Probe over a full headless game captured, at POINT_AFTER_CHOICE entry: Q1 \"3rd & 11 \u00b7 BALL ON HOM 29\", Q2 \"2nd & 7 \u00b7 BALL ON AWY 32\", Q4 \"2nd & 12 \u00b7 BALL ON AWY 28\" - each the down and spot of the play that just scored. The related kickoff/PAT snaps show an inapplicable \"1st & 10\" for the same reason.",
+   "failureScenario": "User scores a touchdown from their own 29 on 3rd & 11. The 'Touchdown - point after' modal opens and, visible through its 72%-opaque backdrop, the scoreboard strip still reads \"3rd & 11 \u00b7 BALL ON HOM 29\" - a down and a field position that no longer exist.",
+   "lens": "render-hud"
+  },
+  {
+   "title": "Replay zoom invalidates the field cache, forcing two full field re-renders",
+   "file": "src/render/FieldRenderer.ts",
+   "line": 262,
+   "severity": "minor",
+   "description": "FieldRenderer.ensure keys its cached offscreen surface on `cam.pxPerYard.toFixed(3)`, and pxPerYard is derived from zoom (src/render/Camera.ts:83-88). GameSession.startReplay calls camera.setZoom(REPLAY_ZOOM=1.15) (src/game/GameSession.ts:467) and endReplay calls setZoom(1) (src/game/GameSession.ts:494), so the cache key changes at both edges of every big-play replay. Each miss allocates a fresh canvas sized up to FIELD_STYLE.maxSurfacePixels = 8,000,000 device pixels (~32MB of backing store at 1920px wide) and repaints the whole 120-yard field: 24 grass bands, two end zones with filled+stroked text, ~21 yard lines, a ~380-segment hash/tick path, 18 rotated yard numbers and the midfield logo. This is pure waste \u2014 the field content is identical, only the sampling scale changed \u2014 and it runs synchronously inside Renderer.draw on exactly the frame the highlight cuts in and the frame it cuts back out.",
+   "failureScenario": "Player breaks a 45-yard touchdown run. ReplayTrigger arms, startReplay sets zoom 1.15; on that frame Renderer.draw sees a new field key, allocates a ~1883x4242 canvas and repaints the entire field before drawing anything, stalling the frame. The stall repeats when the replay ends and zoom returns to 1 \u2014 a visible hitch bracketing every replay on a machine that held 60fps through the live play.",
+   "lens": "robustness"
+  },
+  {
+   "title": "Restart stacks a second crowd noise loop over the one still stopping",
+   "file": "src/audio/WebAudioEngine.ts",
+   "line": 309,
+   "severity": "minor",
+   "description": "App.beginGame calls disposeSession() first (src/app/App.ts:246), so GameSession.dispose() -> audio.stopAmbience(), which nulls graph.crowdSource but schedules the node to stop a full second later (`src.stop(now + 1.0)`). The replacement GameSession's constructor immediately calls audio.setCrowdIntensity(this.audioDirector.crowdIntensity) with CROWD.base = 0.25 (src/game/GameSession.ts:178). setCrowdIntensity clears ambienceStopped because v > 0, and applyCrowd then calls startCrowdLoop, whose only guard is `if (!g || g.crowdSource) return` \u2014 crowdSource was just nulled, so a second BufferSource is created and connected to the same crowdFilter -> crowdGain chain. Both play the same 2s brown-noise buffer at different phases into one gain node.",
+   "failureScenario": "Player pauses an exhibition and picks \"Restart Game\". App.restartGame -> beginGame disposes the old session (old loop scheduled to stop at t+1.0s) and constructs the new one, which starts a second loop at t+0. For the next second two brown-noise beds sum through crowdGain, so the crowd bed jumps roughly 3-6 dB above its set level and then abruptly drops back when the old source stops. Repeated restarts inside one second stack further sources.",
+   "lens": "robustness"
+  }
+ ]
+}

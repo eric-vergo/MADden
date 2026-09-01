@@ -1,6 +1,6 @@
 // Pure HUD text helpers. No canvas, no DOM — unit-tested directly.
 
-import type { GameState, TeamSide } from '../sim/types';
+import { GamePhase, type GameState, type TeamSide } from '../sim/types';
 import { GOAL_AWAY_Y, GOAL_HOME_Y, TICK_HZ } from '../sim/constants';
 
 const MIDFIELD_Y = (GOAL_HOME_Y + GOAL_AWAY_Y) / 2;
@@ -99,6 +99,37 @@ export function situationText(state: Readonly<GameState>): string {
   const goalToGo = isGoalToGo(state.ballOnY, state.possession, state.attackDir, state.toGo);
   const dd = downAndDistanceText(state.down, state.toGo, goalToGo);
   return `${dd} · BALL ON ${ballOnText(state.ballOnY, state.attackDir, abbrevs)}`;
+}
+
+/**
+ * The scoreboard strip's left block, or null when there is nothing to say.
+ *
+ * A try and the kick that restarts play are not downs. The sim leaves
+ * state.down / toGo / ballOnY on the *scoring* play's series until setupPat or
+ * setupKickoff runs, so through POINT_AFTER_CHOICE the strip would otherwise
+ * read back a down and a field position that no longer exist ("3rd & 11 · BALL
+ * ON HOM 29" while the point-after modal is open). Once the try or the kickoff
+ * has been spotted the ball position is real again — only the down and distance
+ * stay meaningless, so those are replaced by the name of the play.
+ */
+export function situationStripText(
+  state: Readonly<GameState>,
+  abbrevs: readonly [string, string],
+  separator = '  ·  ',
+): string | null {
+  if (state.phase === GamePhase.GAME_OVER) return null;
+  // Nothing on this strip is trustworthy yet: setupPat has not run.
+  if (state.phase === GamePhase.POINT_AFTER_CHOICE) return 'POINT AFTER TRY';
+
+  const spot = `BALL ON ${ballOnText(state.ballOnY, state.attackDir, abbrevs)}`;
+  switch (state.nextPlayKind) {
+    case 'pat': return `TRY${separator}${spot}`;
+    case 'kickoff': return `KICKOFF${separator}${spot}`;
+    case 'freeKick': return `FREE KICK${separator}${spot}`;
+    default: break;
+  }
+  const goalToGo = isGoalToGo(state.ballOnY, state.possession, state.attackDir, state.toGo);
+  return `${downAndDistanceText(state.down, state.toGo, goalToGo)}${separator}${spot}`;
 }
 
 /** "+7" / "-3" / "NO GAIN" for the post-play popup. */

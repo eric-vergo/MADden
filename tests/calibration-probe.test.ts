@@ -9,6 +9,7 @@
 
 import { describe, it } from 'vitest';
 import { runHeadlessGame } from './harness/headlessGame';
+import { maxOf, mean, measureFootballShape } from './fixes-balance/footballShape';
 import type { SimEvent } from '../src/sim/events';
 
 const SOAK = import.meta.env.MODE === 'soak';
@@ -119,5 +120,47 @@ describe.skipIf(!SOAK)('calibration probe', () => {
       deadReasons,
       counts,
     }, null, 1));
+  }, 180_000);
+
+  // The phase-3 rules fixes invented a whole category of football that used to
+  // be impossible: returns that go the right way, own-impetus safeties and
+  // pass interference. None of it shows up in the box score, so it gets its
+  // own trace.
+  it('prints return, safety and interference diagnostics', () => {
+    for (const base of [10_000, 40_000]) {
+      const n = 16;
+      const s = measureFootballShape(base, n);
+      const pct = (xs: number[], f: number): number => {
+        const sorted = [...xs].sort((a, b) => a - b);
+        const v = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * f))];
+        return v === undefined ? 0 : +v.toFixed(1);
+      };
+      console.log(`shape@${base} ${JSON.stringify({
+        games: n,
+        kickReturns: {
+          n: s.kickReturns.length,
+          perGame: +(s.kickReturns.length / n).toFixed(2),
+          mean: +mean(s.kickReturns).toFixed(1),
+          p50: pct(s.kickReturns, 0.5), p90: pct(s.kickReturns, 0.9),
+          max: +maxOf(s.kickReturns).toFixed(1),
+        },
+        puntReturns: {
+          n: s.puntReturns.length,
+          perGame: +(s.puntReturns.length / n).toFixed(2),
+          mean: +mean(s.puntReturns).toFixed(1),
+          p50: pct(s.puntReturns, 0.5), p90: pct(s.puntReturns, 0.9),
+          max: +maxOf(s.puntReturns).toFixed(1),
+        },
+        pickSixes: s.pickSixes,
+        fumbleSixes: s.fumbleSixes,
+        returnTds: s.returnTds,
+        interceptions: s.interceptions,
+        safetiesPerGame: +(s.safeties / n).toFixed(3),
+        touchbacksPerGame: +(s.touchbacks / n).toFixed(2),
+        fairCatchesPerGame: +(s.fairCatches / n).toFixed(2),
+        flags: s.flags,
+        flagsPerGame: +(Object.values(s.flags).reduce((a, b) => a + b, 0) / n).toFixed(2),
+      }, null, 1)}`);
+    }
   }, 180_000);
 });

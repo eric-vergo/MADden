@@ -11,8 +11,7 @@ import {
   approxTextWidth, clamp, fillEllipse, rgba, roundRectPath, shadowText,
 } from './shapes';
 import {
-  ballOnText, downAndDistanceText, formatClock, formatPlayClock, isGoalToGo, quarterLabel,
-  typewriterSlice,
+  formatClock, formatPlayClock, quarterLabel, situationStripText, typewriterSlice,
 } from './format';
 import { LogoCache } from './logo';
 import type { RendererExtras } from './types';
@@ -190,15 +189,10 @@ export class HudRenderer {
     state: Readonly<GameState>,
     extras: RendererExtras,
   ): void {
-    if (state.phase === GamePhase.GAME_OVER) return;
-    const s = box.s;
     const abbrevs: [string, string] = [extras.teams[0].abbrev, extras.teams[1].abbrev];
-    const goalToGo = isGoalToGo(state.ballOnY, state.possession, state.attackDir, state.toGo);
-    const text = `${downAndDistanceText(state.down, state.toGo, goalToGo)}  ·  BALL ON ${ballOnText(
-      state.ballOnY,
-      state.attackDir,
-      abbrevs,
-    )}`;
+    const text = situationStripText(state, abbrevs);
+    if (text === null) return;
+    const s = box.s;
     ctx.font = `bold ${(16 * s).toFixed(1)}px ${UI_FONT}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';

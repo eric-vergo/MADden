@@ -24,7 +24,10 @@ import { makeTestRoster } from './harness/fixtures';
 
 const SOAK = import.meta.env.MODE === 'soak';
 
-const GAMES_PER_DIFFICULTY = 10;
+// 16, not 10: the kicking rung is the narrowest claim here and ten games only
+// put ~20 field goals behind it, which is not enough to resolve the gap the
+// assertions below demand — the test passed or failed on which slate it drew.
+const GAMES_PER_DIFFICULTY = 16;
 const SEED_BASE = 500_000;
 const TICK_CAP = 60 * 60 * 90;
 
@@ -113,6 +116,9 @@ describe.skipIf(!SOAK)('difficulty soak', () => {
       fgPct: +r.fieldGoalPct.toFixed(3),
       fga: r.fieldGoalAtt,
     })));
+    // Printed on the way through, not only on a failure: the margin a rung
+    // clears its neighbour by is the thing a tuning pass needs to see.
+    console.log(`difficulty ladder ${table}`);
 
     const first = rungs[0] as Ladder;
     const last = rungs[rungs.length - 1] as Ladder;

@@ -274,8 +274,22 @@ export function updatePursuit(ctx: AiCtx, i: number): void {
   if (rank < COVERAGE.pursuitDirectCount) {
     aim = pursuePoint(p, c.pos2, c.vel);
   } else {
-    const heading = len(c.vel) > 0.5 ? norm(c.vel) : { x: 0, y: ctx.dir };
-    const lead = PURSUIT_AI.cutoffBaseLeadYd + rank * PURSUIT_AI.cutoffPerRankYd;
+    // A standing carrier is assumed to break toward HIS OWN goal (ctx.dir is
+    // the snapping offense's direction and is backwards after a turnover).
+    const heading = len(c.vel) > 0.5 ? norm(c.vel) : { x: 0, y: ctx.carrierDir };
+    // A defender the runner has already gone past has to lead by how far back
+    // he is, not by his rank alone (see PURSUIT_AI.cutoffDistLeadFrac): 8 yards
+    // of lead from 30 yards behind is a permanent tail chase. Defenders still
+    // in front keep the tight rank lead — over-leading THEM just runs them past
+    // the runner and opens the very lane they are supposed to fill.
+    const d = dist(p.pos2, c.pos2);
+    const toMe: Vec2 = { x: (p.pos2.x - c.pos2.x) / d, y: (p.pos2.y - c.pos2.y) / d };
+    const trailing = d > 1e-6 && dot(heading, toMe) < 0;
+    const lead = Math.min(
+      PURSUIT_AI.cutoffMaxLeadYd,
+      PURSUIT_AI.cutoffBaseLeadYd + rank * PURSUIT_AI.cutoffPerRankYd
+        + (trailing ? d * PURSUIT_AI.cutoffDistLeadFrac : 0),
+    );
     aim = { x: c.pos2.x + heading.x * lead, y: c.pos2.y + heading.y * lead };
   }
 
@@ -305,7 +319,7 @@ export function maybeTackle(ctx: AiCtx, i: number): boolean {
   const d = len(toCarrier);
   if (d < 1e-6) return false;
   const dirToCarrier = { x: toCarrier.x / d, y: toCarrier.y / d };
-  const carrierHeading = len(c.vel) > 0.5 ? norm(c.vel) : { x: 0, y: ctx.dir };
+  const carrierHeading = len(c.vel) > 0.5 ? norm(c.vel) : { x: 0, y: ctx.carrierDir };
   // The tackler trails the runner when he sits along the runner's heading.
   const fromBehind = dot(carrierHeading, dirToCarrier) > PURSUIT_AI.behindDotThreshold;
   const range = fromBehind ? TACKLE.behindRangeYd : TACKLE.attemptRangeYd;

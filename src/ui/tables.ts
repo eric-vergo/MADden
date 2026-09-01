@@ -38,13 +38,20 @@ export interface StandingsGroup {
 export interface StandingsOptions {
   userTeamId?: string;
   conference?: ConferenceName;
+  /**
+   * Override the ranked-list detection below. `true` renders the caller's order
+   * verbatim, `false` always applies `compareStandingRows`.
+   */
+  preSorted?: boolean;
 }
 
 /**
- * Sort key: win% → division win% → point differential → teamId.
- * NOTE: head-to-head (the real tiebreaker #2, meta/standings.ts) needs the
- * schedule, which the display layer does not take; the hub renders whatever
- * order the meta layer hands it when it supplies a pre-sorted list.
+ * Fallback sort key for a raw, unranked list: win% → division win% → point
+ * differential → teamId.
+ * NOTE: head-to-head (the real tiebreaker #2, meta/standings.ts) and the seeded
+ * coin need the schedule and the league seed, which the display layer does not
+ * take. So this comparator can only ever approximate the real ladder — it must
+ * not be turned loose on a list somebody else already ranked (see `isRanked`).
  */
 export function compareStandingRows(a: StandingRow, b: StandingRow): number {
   const pa = winPct(a.w, a.l, a.t);
@@ -59,6 +66,30 @@ export function compareStandingRows(a: StandingRow, b: StandingRow): number {
   return a.teamId < b.teamId ? -1 : a.teamId > b.teamId ? 1 : 0;
 }
 
+/**
+ * True when `rows` already arrive best-first. Win% is the meta layer's primary
+ * key and everything under it (head-to-head, division record, point diff, the
+ * seeded coin) only reorders teams *inside* an equal-win% run, so a win%-
+ * monotone list is a ranking somebody else computed with more information than
+ * this layer has. Re-sorting one can only lose fidelity; an unordered list
+ * (the demo fixture hands over rows in team-id order) still gets sorted.
+ */
+export function isRanked(rows: readonly StandingRow[]): boolean {
+  for (let i = 1; i < rows.length; i++) {
+    const prev = rows[i - 1];
+    const cur = rows[i];
+    if (!prev || !cur) continue;
+    if (winPct(cur.w, cur.l, cur.t) > winPct(prev.w, prev.l, prev.t) + 1e-9) return false;
+  }
+  return true;
+}
+
+/**
+ * Group rows into the four division tables. A ranked list keeps the order it
+ * arrived in — that order is the meta layer's tiebreaker ladder, the same one
+ * the playoff bracket seeds from, and the Standings tab naming a different
+ * division winner than the Bracket tab is a contradiction the player can see.
+ */
 export function buildStandings(
   identities: readonly TeamIdentity[],
   rows: readonly StandingRow[],
@@ -80,7 +111,7 @@ export function buildStandings(
     }
   }
 
-  const sorted = [...rows].sort(compareStandingRows);
+  const sorted = (opts.preSorted ?? isRanked(rows)) ? rows : [...rows].sort(compareStandingRows);
   for (const row of sorted) {
     const identity = byId.get(row.teamId);
     if (!identity) continue;
@@ -110,11 +141,13 @@ export function buildConferenceSeeds(
   rows: readonly StandingRow[],
   conference: ConferenceName,
 ): string[] {
-  const groups = buildStandings(identities, rows, { conference });
+  const preSorted = isRanked(rows);
+  const groups = buildStandings(identities, rows, { conference, preSorted });
   const winners: StandingRow[] = [];
   const rest: StandingRow[] = [];
   const byId = new Map<string, StandingRow>();
-  for (const r of rows) byId.set(r.teamId, r);
+  const rank = new Map<string, number>();
+  rows.forEach((r, i) => { byId.set(r.teamId, r); rank.set(r.teamId, i); });
   for (const g of groups) {
     g.rows.forEach((r, i) => {
       const raw = byId.get(r.teamId);
@@ -122,8 +155,13 @@ export function buildConferenceSeeds(
       (i === 0 ? winners : rest).push(raw);
     });
   }
-  winners.sort(compareStandingRows);
-  rest.sort(compareStandingRows);
+  // A ranked list already carries the full ladder; re-ordering by list position
+  // keeps head-to-head and the seeded coin intact.
+  const cmp = preSorted
+    ? (a: StandingRow, b: StandingRow): number => (rank.get(a.teamId) ?? 0) - (rank.get(b.teamId) ?? 0)
+    : compareStandingRows;
+  winners.sort(cmp);
+  rest.sort(cmp);
   return [...winners, ...rest.slice(0, 2)].map((r) => r.teamId);
 }
 

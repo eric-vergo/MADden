@@ -484,6 +484,10 @@ export class App implements GameServicesHost {
     this.session?.requestTimeout();
   }
 
+  canCallTimeout(): boolean {
+    return this.session?.canCallTimeout() ?? false;
+  }
+
   timeoutsRemaining(): number {
     const session = this.session;
     if (!session) return 0;

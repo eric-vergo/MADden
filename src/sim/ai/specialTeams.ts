@@ -3,7 +3,7 @@
 // decisions.
 
 import type { SimPlayer, Vec2 } from '../types';
-import { FIELD_W, TICK_HZ } from '../constants';
+import { CENTER_X, FIELD_W, TICK_HZ } from '../constants';
 import { KICK, ST_AI } from '../../data/balance';
 
 export { ST_AI };
@@ -60,6 +60,31 @@ export function initKicker(ctx: AiCtx, i: number): void {
   mindSet(k, MIND_PRESSES, 0);
 }
 
+/**
+ * Point a CPU placekick at the middle of the uprights.
+ *
+ * launchKick fires the ball straight down the field (heading = ±PI/2) plus the
+ * meter's aim, and the kick is spotted on a hash — which sits HASH_LEFT_X /
+ * HASH_RIGHT_X, exactly one GOALPOST_HALF_WIDTH off centre. A kicker who does
+ * not turn his hips is therefore aiming precisely at an upright from either
+ * hash, and every field goal is a coin flip: 51% over 24 games, and the misses
+ * were 22 wide against 3 short. (This only became reachable when hash spotting
+ * started working — before that every kick went from dead centre.)
+ *
+ * The user aims with Left/Right; the CPU aims here. `aimOffset` is the same
+ * screen-space quantity launchKick negates, hence the `* ctx.dir`.
+ */
+function aimAtUprights(ctx: AiCtx): void {
+  const plan = ext(ctx.state).kick;
+  if (plan === null || !plan.auto || plan.style !== 'placekick' || plan.launched) return;
+  const dx = CENTER_X - ctx.play.ball.pos2.x;
+  const flight = Math.max(10, plan.fgDistance);
+  const want = Math.atan2(dx, flight) * ctx.dir;
+  ctx.play.kickMeter.aimOffset = Math.max(
+    -KICK.aimMaxOffsetRad, Math.min(KICK.aimMaxOffsetRad, want),
+  );
+}
+
 export function updateKicker(ctx: AiCtx, i: number): void {
   const k = ctx.players[i];
   if (!k) return;
@@ -67,6 +92,7 @@ export function updateKicker(ctx: AiCtx, i: number): void {
   const presses = mindGet(k, MIND_PRESSES, 0);
   applyMove(ctx, i, { x: 0, y: 0 });
   k.anim = 'kicking';
+  aimAtUprights(ctx);
 
   if (presses >= 3) return;
   // S1 already drives the meter for every CPU kick through its own KickPlan —
@@ -158,7 +184,15 @@ export function updateCoverLane(ctx: AiCtx, i: number, laneIndex: number, contai
   // Gunners release straight at the catch point; the rest hold their lane.
   const wide = Math.abs(p.pos2.x - ctx.ball.pos2.x) > ST_AI.gunnerLateralYd;
   const land = predictLanding(ctx.ball);
-  const aimY = returner ? returner.pos2.y : land.pos.y;
+  // Lane coverage breaks down SHORT of the catch point (that is what
+  // ST_AI.laneHoldDepthYd is for) instead of sprinting into the returner's lap.
+  // Running all the way to his feet put eight of the eleven cover men behind
+  // him the moment he took a step, so one broken tackle was a house call:
+  // 17% of kick returns went 70+ yards. Holding depth keeps a wall in front of
+  // him and leaves a second wave to clean up the first miss. Gunners and
+  // contain men still release straight at the ball.
+  const target = returner ? returner.pos2.y : land.pos.y;
+  const aimY = wide || contain ? target : target - ST_AI.laneHoldDepthYd * ctx.dir;
   const aim: Vec2 = wide || contain
     ? { x: returner ? returner.pos2.x + (p.pos2.x < (returner.pos2.x) ? -ST_AI.containOutsideYd : ST_AI.containOutsideYd) : laneTargetX(laneIndex), y: aimY }
     : { x: laneTargetX(laneIndex), y: aimY };

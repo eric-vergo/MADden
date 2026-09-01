@@ -119,6 +119,17 @@ export interface SimExt {
   spotFixed: boolean;
   /** A kick is still untouched by the receiving team. */
   kickUntouched: boolean;
+  /**
+   * Impetus bookkeeping: true when the team that now has the ball took
+   * possession of it inside its OWN end zone (fielded a kick there, picked a
+   * pass off there, fell on a loose ball there). Own-goal-line rulings turn on
+   * this — see finishPlay in phases/playLive.ts.
+   */
+  gainedInOwnEndZone: boolean;
+  /** Pass interference has already been adjudicated for the pass in the air. */
+  piChecked: boolean;
+  /** The user called a hard count before this snap (draws the defense offside). */
+  hardCount: boolean;
   outcome: PlayOutcome | null;
   afterDead: GamePhase | null;
   patTwo: boolean;
@@ -173,6 +184,9 @@ function freshExt(s: GameState): SimExt {
     lastCarrierIdx: -1,
     spotFixed: false,
     kickUntouched: true,
+    gainedInOwnEndZone: false,
+    piChecked: false,
+    hardCount: false,
     outcome: null,
     afterDead: null,
     patTwo: false,
@@ -247,4 +261,7 @@ export function resetPlayScratch(s: GameState): void {
   e.lastCarrierIdx = -1;
   e.spotFixed = false;
   e.kickUntouched = true;
+  e.gainedInOwnEndZone = false;
+  e.piChecked = false;
+  e.hardCount = false;
 }

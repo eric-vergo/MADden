@@ -184,11 +184,34 @@ describe('HUD extras end to end', () => {
 
   it('draws the kick meter while the kicking team owns it', () => {
     const r = rig();
-    expect(runUntil(r.h, (s) => s.snapshots[1].kickMeter !== null)).toBe(true);
+    // preSnap arms kickMeter.active for EVERY kick, but the meter is only an
+    // affordance when the user is the one working it — the sim hands them the
+    // K/P exactly then, so wait for a kick the viewer can actually control.
+    const userKicking = (s: GameSession): boolean => {
+      const play = s.state.play;
+      if (play === null || s.snapshots[1].kickMeter === null) return false;
+      const role = play.players[play.controlledIdx]?.role;
+      return role === 'K' || role === 'P';
+    };
+    expect(runUntil(r.h, userKicking)).toBe(true);
     const meter = r.h.session.snapshots[1].kickMeter;
     expect(meter?.active).toBe(true);
     const log = r.drawNow();
     expect(log.includes('fillText(POWER,') || log.includes('fillText(ACCURACY,')).toBe(true);
+  });
+
+  it('hides the kick meter during a kick the viewer cannot control', () => {
+    const r = rig();
+    const cpuKicking = (s: GameSession): boolean => {
+      const play = s.state.play;
+      if (play === null || s.snapshots[1].kickMeter?.active !== true) return false;
+      const role = play.players[play.controlledIdx]?.role;
+      return role !== 'K' && role !== 'P';
+    };
+    expect(runUntil(r.h, cpuKicking)).toBe(true);
+    const log = r.drawNow();
+    expect(log).not.toContain('fillText(POWER,');
+    expect(log).not.toContain('fillText(ACCURACY,');
   });
 
   it('keeps the kick meter clear of the ticker line', () => {
@@ -230,7 +253,7 @@ describe('replay chrome end to end', () => {
     const bar = 720 * 0.08;
     expect(log).toContain(`fillRect(0,0,1280,${bar})[#000000]`);
     expect(log).toContain(`fillRect(0,${720 - bar},1280,${bar})[#000000]`);
-    expect(log).toContain('fillText(ANY KEY TO SKIP,');
+    expect(log).toContain(`fillText(${EFFECT_STYLE.replaySkipHint},`);
     // No scoreboard behind the letterbox.
     expect(log).not.toContain('BALL ON');
 

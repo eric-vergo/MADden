@@ -3,7 +3,7 @@
 
 import {
   GameAction, GamePhase,
-  type DeadReason, type GameState, type OffAssignment, type PlayState, type Vec2,
+  type DeadReason, type GameState, type OffAssignment, type PlayState, type TeamSide, type Vec2,
 } from '../types';
 import type { SimEvent, TickInput } from '../events';
 import type { RngSet } from '../rng';
@@ -30,6 +30,7 @@ import {
   attackEndLineY, attackGoalY, ownGoalY, ownYardLineY, clampFieldY,
 } from '../transform';
 import { missedFieldGoalSpot, touchbackSpot } from '../rules/scoring';
+import { maybePassInterference } from '../rules/penalties';
 import { defaultOutcome } from './outcome';
 
 const DROPBACK_TYPES: readonly string[] = ['pass', 'playAction', 'screen', 'twoPoint'];
@@ -89,10 +90,12 @@ function handleUserInput(
 ): void {
   const idx = p.controlledIdx;
   if (idx < 0) return;
-  const me = p.players[idx];
-  if (me === undefined || me.anim === 'down') return;
   const e = ext(s);
 
+  // Commands are read BEFORE the incapacitation bail: a pancaked defender is
+  // exactly when the user needs to switch off him, and PLAY_LIVE is the only
+  // consumer of SWITCH_CONTROLLED (the session drops what it queued each tick).
+  // `idx` stays the pre-switch player so the rest of this tick is unchanged.
   for (const c of input.commands) {
     if (c.type === 'RETURN_DECISION') e.returnKneel = c.choice === 'kneel';
     if (c.type === 'SWITCH_CONTROLLED' && c.playerIdx >= 0 && c.playerIdx < p.players.length) {
@@ -100,6 +103,9 @@ function handleUserInput(
       events.push({ type: 'CONTROL_CHANGED', tick: s.tick, controlledIdx: c.playerIdx });
     }
   }
+
+  const me = p.players[idx];
+  if (me === undefined || me.anim === 'down') return;
 
   if (p.kickMeter.active && input.frame.pressed.has(GameAction.MeterPress)) {
     pressKickMeter(s, events);
@@ -115,8 +121,13 @@ function handleUserInput(
   const sprinting = input.frame.held.has(GameAction.Sprint);
   const carrying = me.hasBall;
 
+  // Aiming is not walking: while the kicker works his own meter, Left/Right
+  // bend the kick and must not also drive the movement stick (it would drag the
+  // launch point yards off the spot before he ever strikes the ball).
+  const workingMeter = p.kickMeter.active && e.kick !== null && e.kick.kickerIdx === idx;
+
   // Movement.
-  const mv = input.frame.move;
+  const mv = workingMeter ? { x: 0, y: 0 } : input.frame.move;
   const mag = Math.hypot(mv.x, mv.y);
   if (mag > MOVE.inputDeadZone && me.stateTimer === 0 && me.engagedWith === null) {
     const v = maxSpeed(me, { sprinting, carrying });
@@ -243,7 +254,12 @@ function launchKick(s: GameState, p: PlayState, events: SimEvent[]): void {
   const power = powerAt(km, s.tick);
   const signed = accuracyErrorAt(km, s.tick);
   const acc = accuracy01(signed);
-  const aim = aimErrorRad(signed, km.aimOffset);
+  // aimOffset is a SCREEN-space quantity: held Left/Right are not rotated by
+  // the session the way the movement stick is, and the camera's x axis flips
+  // with the kicking team's attack direction. heading = ±PI/2 + aim gives
+  // velX = -sin(aim) at dir=+1 and +sin(aim) at dir=-1, which in screen space
+  // is LEFT in both cases — so a positive (Right) offset is subtracted.
+  const aim = aimErrorRad(signed, -km.aimOffset);
   const dir = s.attackDir[e.playOffense];
   const heading = (dir === 1 ? Math.PI / 2 : -Math.PI / 2) + aim;
   const kpw = kicker === undefined ? 75 : kicker.ratings.kpw;
@@ -346,6 +362,15 @@ function catchCandidates(s: GameState, p: PlayState): CatchCandidate[] {
   return out;
 }
 
+/**
+ * Impetus bookkeeping for the end-zone ruling in finishPlay: record whether the
+ * player taking possession did so inside his OWN end zone.
+ */
+function noteGain(s: GameState, team: TeamSide, at: Vec2): void {
+  const dir = s.attackDir[team];
+  ext(s).gainedInOwnEndZone = (at.y - ownGoalY(dir)) * dir < 0;
+}
+
 function completeCatch(s: GameState, p: PlayState, idx: number, contested: boolean, events: SimEvent[]): void {
   const e = ext(s);
   const pl = p.players[idx];
@@ -371,6 +396,9 @@ function completeCatch(s: GameState, p: PlayState, idx: number, contested: boole
     if (wasPitch) events.push({ type: 'HANDOFF', tick: s.tick, carrierIdx: idx });
     else events.push({ type: 'CATCH', tick: s.tick, receiverIdx: idx, contested });
   } else {
+    // A pick taken IN his own end zone is the passer's impetus (touchback);
+    // one taken in the field of play makes the interceptor his own impetus.
+    noteGain(s, pl.team, pl.pos2);
     if (o !== null) {
       o.turnover = 'int';
       o.possessionAfter = pl.team;
@@ -498,6 +526,8 @@ function resolveKickReception(s: GameState, p: PlayState, events: SimEvent[]): v
       return;
     }
     if (e.fairCatchCalled) {
+      // A fair catch made in his own end zone is still the kick's impetus.
+      noteGain(s, receiving, pl.pos2);
       if (o !== null) {
         o.spotY = p.ball.pos2.y;
         o.spotX = p.ball.pos2.x;
@@ -515,6 +545,9 @@ function resolveKickReception(s: GameState, p: PlayState, events: SimEvent[]): v
     p.ball.mode = 'held';
     p.ball.lastTouchTeam = receiving;
     e.lastCarrierIdx = i;
+    // Fielded in the end zone = the kick's impetus; fielded in the field of
+    // play = the returner's own.
+    noteGain(s, receiving, pl.pos2);
     if (o !== null) {
       o.possessionAfter = receiving;
       o.changeOfPossession = true;
@@ -538,6 +571,7 @@ function resolveLooseBall(s: GameState, p: PlayState, events: SimEvent[]): void 
     p.ball.lastTouchTeam = pl.team;
     e.lastCarrierIdx = i;
     e.kickUntouched = false;
+    noteGain(s, pl.team, pl.pos2);
     const o = e.outcome;
     if (o !== null) {
       o.possessionAfter = pl.team;
@@ -582,7 +616,9 @@ function resolveFieldGoal(
     const z = prevZ + (p.ball.z - prevZ) * t;
     if (z >= CROSSBAR_HEIGHT) {
       if (Math.abs(x - CENTER_X) <= GOALPOST_HALF_WIDTH) { good = true; missSide = null; }
-      else missSide = x < CENTER_X ? 'left' : 'right';
+      // "Wide left" is called from the kicker's point of view (and the camera
+      // is flipped to match him), so the side turns on his attack direction.
+      else missSide = (x - CENTER_X) * dir < 0 ? 'left' : 'right';
     } else {
       missSide = 'short';
     }
@@ -854,11 +890,22 @@ function finishPlay(s: GameState, p: PlayState, events: SimEvent[]): void {
   if (o.targetIdx === null && e.lastTargetIdx >= 0) o.targetIdx = e.lastTargetIdx;
   if (reason === 'sack' && o.playType === 'pass') o.playType = 'sack';
 
-  // End-zone bookkeeping: own-impetus = safety, kick/turnover = touchback.
+  // End-zone bookkeeping, ruled by IMPETUS rather than by play type.
+  //
+  // A touchback needs BOTH: the ball was put in the end zone by the opponent
+  // (his kick or his pass, i.e. possession changed hands on this play) AND
+  // possession was taken there. A returner or interceptor who gains the ball in
+  // the field of play supplies his own impetus, so being downed in his own end
+  // zone concedes a safety — as does the kicking team recovering its own
+  // blocked punt behind its own goal line.
+  //
+  // [SIMPLE-BY-CHOICE] no momentum exception, and no "carried it out and came
+  // back in": possession taken inside the end zone always stays a touchback.
   const possDir = s.attackDir[o.possessionAfter];
   const behindOwnGoal = (o.spotY - ownGoalY(possDir)) * possDir < 0;
   if (!o.touchdown && behindOwnGoal) {
-    if (o.changeOfPossession || o.playType === 'punt' || o.playType === 'kickoff') {
+    const opponentImpetus = o.possessionAfter !== offense && e.gainedInOwnEndZone;
+    if (opponentImpetus) {
       const yd = o.playType === 'kickoff' ? TOUCHBACK_KICKOFF_YD : TOUCHBACK_OTHER_YD;
       o.spotY = ownYardLineY(yd, possDir);
       o.deadReason = 'touchback';
@@ -913,6 +960,7 @@ export function playLivePhase(
   if (p.deadReason === null) advanceMesh(s, p, events);
   if (p.deadReason === null) handleKneelSpike(s, p, events);
   if (p.deadReason === null) updateKick(s, p, events);
+  if (p.deadReason === null) maybePassInterference(s, p, rng.penalties, events);
   if (p.deadReason === null) updateBall(s, p, rng, events);
   if (p.deadReason === null) separateTeammates(p);
   if (p.deadReason === null) checkCarrierBoundaries(s, p, events);

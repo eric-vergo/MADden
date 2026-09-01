@@ -2,7 +2,7 @@
 
 export { Camera, CAMERA_TUNING } from './Camera';
 export type { ScreenPoint, WorldPoint } from './Camera';
-export { Renderer } from './Renderer';
+export { Renderer, userKickMeter } from './Renderer';
 export { FieldRenderer, FIELD_STYLE, drawFieldTo, fieldThemeFromTeams, fieldThemeKey } from './FieldRenderer';
 export type { EndZoneTheme, FieldTheme } from './FieldRenderer';
 export { EntityRenderer, ENTITY_STYLE } from './EntityRenderer';

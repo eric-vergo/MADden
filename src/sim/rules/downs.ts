@@ -56,15 +56,26 @@ export function enforceYards(
   return fromY + capped * sign;
 }
 
-/** Yard-line label for a world y ("MID 42", "HOM 18"). */
+/**
+ * Yard-line label for a world y ("MID 42", "HOM 18").
+ *
+ * `homeDir` is `attackDir[0]` — which way the HOME team attacks. A team's own
+ * territory is the half it defends, and swapEnds() flips both directions at
+ * every quarter break, so the low-y half is home territory only while
+ * homeDir === 1 (Q1/Q3). Mirrors territoryTeam() in src/render/format.ts.
+ * The default keeps the Q1 orientation for callers that have no state to hand.
+ */
 export function spotLabel(
   ballOnY: number,
   homeAbbrev: string,
   awayAbbrev: string,
+  homeDir: Dir = 1,
 ): string {
   const yl = Math.round(ballOnY <= 60 ? ballOnY - 10 : 110 - ballOnY);
   if (Math.abs(ballOnY - 60) < 0.5) return 'MID 50';
-  const side = ballOnY < 60 ? homeAbbrev : awayAbbrev;
+  const lowDefender = homeDir === 1 ? homeAbbrev : awayAbbrev;
+  const highDefender = homeDir === 1 ? awayAbbrev : homeAbbrev;
+  const side = ballOnY < 60 ? lowDefender : highDefender;
   return `${side} ${Math.max(0, Math.min(50, yl))}`;
 }
 
@@ -72,6 +83,10 @@ export function downLabel(down: number): string {
   return down === 1 ? '1st' : down === 2 ? '2nd' : down === 3 ? '3rd' : '4th';
 }
 
+/**
+ * "2nd & 7 at HOM 34". `dir` is the direction the team with the ball attacks
+ * (goal-to-go); `homeDir` is attackDir[0] (whose territory the spot is in).
+ */
 export function describeState(
   down: number,
   toGo: number,
@@ -79,10 +94,11 @@ export function describeState(
   dir: Dir,
   homeAbbrev: string,
   awayAbbrev: string,
+  homeDir: Dir = 1,
 ): string {
   const goalToGo = isGoalToGo(ballOnY, toGo, dir);
   const dist = goalToGo ? 'Goal' : String(Math.round(toGo));
-  return `${downLabel(down)} & ${dist} at ${spotLabel(ballOnY, homeAbbrev, awayAbbrev)}`;
+  return `${downLabel(down)} & ${dist} at ${spotLabel(ballOnY, homeAbbrev, awayAbbrev, homeDir)}`;
 }
 
 export function teamAbbrevs(s: GameState): [string, string] {

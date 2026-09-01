@@ -8,7 +8,7 @@ import { dist, dot, fromAngle, len, norm, sub } from '../vec';
 import { maxSpeed } from '../physics/movement';
 import {
   OFFENSE_HI, OFFENSE_LO,
-  isIncapacitated, mindGet, mindSet, nearestOpponentTo, type AiCtx,
+  attackDirOf, isIncapacitated, mindGet, mindSet, nearestOpponentTo, type AiCtx,
 } from './context';
 import { CARRIER_AI, COACH } from '../../data/balance';
 import { scaledClockWindow } from './coach';
@@ -29,6 +29,9 @@ const MIND_PATH_WP = 'crPathWp';
 function designedAimGap(ctx: AiCtx, i: number): GapId | null {
   const p = ctx.players[i];
   if (!p) return null;
+  // Designed-run geometry (gaps, LOS depth) only means anything for the team
+  // that snapped the ball; a defender with the ball has no aim gap.
+  if (p.team !== ctx.offense) return null;
   const declared = ctx.play.offensePlay.assignments[p.role];
   if (declared && declared.kind === 'carry') return declared.aimGap;
   return null;
@@ -112,7 +115,7 @@ export function wantsInbounds(ctx: AiCtx): boolean {
 function pickMove(ctx: AiCtx, i: number, defIdx: number): CarrierMove {
   const p = ctx.players[i] as SimPlayer;
   const d = ctx.players[defIdx] as SimPlayer;
-  const heading = len(p.vel) > 0.5 ? norm(p.vel) : { x: 0, y: ctx.dir };
+  const heading = len(p.vel) > 0.5 ? norm(p.vel) : { x: 0, y: attackDirOf(ctx, p.team) };
   const toDef = norm(sub(d.pos2, p.pos2));
   const front = dot(heading, toDef);
   if (front < -0.2) return 'spin';
@@ -148,7 +151,9 @@ function maybeMove(ctx: AiCtx, i: number): void {
 
 function isQbRunner(ctx: AiCtx, i: number): boolean {
   const p = ctx.players[i];
-  return !!p && (i === ctx.qbIdx || p.pos === 'QB');
+  // Sliding is an offensive-QB privilege; a defender who picked the ball off
+  // has no sticks to measure against.
+  return !!p && p.team === ctx.offense && (i === ctx.qbIdx || p.pos === 'QB');
 }
 
 function gainSecured(ctx: AiCtx, i: number): boolean {
@@ -165,7 +170,11 @@ function gainSecured(ctx: AiCtx, i: number): boolean {
 
 function openFieldTarget(ctx: AiCtx, i: number): Vec2 {
   const p = ctx.players[i] as SimPlayer;
-  const downfield = { x: 0, y: ctx.dir };
+  // "Downfield" is THIS carrier's own attack direction, not the snapping
+  // offense's: after an interception, fumble recovery or on a kick return the
+  // two are opposite.
+  const dir = attackDirOf(ctx, p.team);
+  const downfield = { x: 0, y: dir };
   const base = Math.atan2(downfield.y, downfield.x);
   const avoidSideline = wantsInbounds(ctx);
   const seekSideline = wantsSideline(ctx);
@@ -190,7 +199,7 @@ function openFieldTarget(ctx: AiCtx, i: number): Vec2 {
     const point: Vec2 = { x: p.pos2.x + probe.x, y: p.pos2.y + probe.y };
     if (point.x < 0.2 || point.x > FIELD_W - 0.2) continue;
 
-    const progress = (point.y - p.pos2.y) * ctx.dir;
+    const progress = (point.y - p.pos2.y) * dir;
     let space = 0;
     for (const d of near) space += Math.min(dist(point, d.pos2), 12);
     let score = progress * CARRIER_AI.fanProgressWeight + space * CARRIER_AI.fanSpaceWeight;
@@ -210,6 +219,9 @@ export function updateCarrier(ctx: AiCtx, i: number): void {
 
   maybeMove(ctx, i);
 
+  // The gap branch below is play-frame geometry, so it runs on ctx.dir — and
+  // designedAimGap only ever returns a gap for a carrier on the snapping
+  // offense, for whom ctx.dir and his own attack direction are the same.
   const depth = depthYd(p.pos2.y, ctx.los, ctx.dir);
   const aim = designedAimGap(ctx, i);
   let target: Vec2;

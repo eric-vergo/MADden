@@ -64,6 +64,10 @@ export function accumulatePlay(
   o: PlayOutcome,
   offense: TeamSide,
 ): void {
+  // An accepted penalty wipes the down off the books: nothing the nullified
+  // play produced — attempts, catches, tackles, picks, kicks — may post.
+  if (o.playType === 'penaltyOnly') return;
+
   const stats = s.stats;
   const defense = otherTeam(offense);
   const team = stats.teams[offense];

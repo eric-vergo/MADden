@@ -1,7 +1,26 @@
 import { Screen, FocusRing, type FocusEntry } from '../Screen';
 import { append, div, span } from '../dom';
 import { dirForCode, eventCode, isBack, isConfirm } from '../focus';
+import type { UiServices } from '../UiServices';
 import { SettingsScreen } from './SettingsScreen';
+
+/**
+ * Label and enabled state of the pause menu's timeout row.
+ *
+ * A timeout is only legal with the ball dead, so the entry has to say so rather
+ * than accept the press, play the horn and quietly change nothing. Hosts that
+ * do not report legality (older fixtures) keep the count-only behaviour.
+ */
+export function timeoutEntryState(
+  services: Pick<UiServices, 'timeoutsRemaining'> & { canCallTimeout?: () => boolean },
+): { label: string; enabled: boolean } {
+  const remaining = services.timeoutsRemaining();
+  const label = `Call Timeout (${remaining})`;
+  if (remaining <= 0) return { label, enabled: false };
+  const legal = services.canCallTimeout?.() ?? true;
+  if (!legal) return { label: `${label} — only while the ball is dead`, enabled: false };
+  return { label, enabled: true };
+}
 
 interface PauseAction {
   key: string;
@@ -35,9 +54,10 @@ export class PauseScreen extends Screen {
       { key: 'resume', label: () => 'Resume', enabled: () => true, run: () => this.resume() },
       {
         key: 'timeout',
-        label: () => `Call Timeout (${this.services.timeoutsRemaining()})`,
-        enabled: () => this.services.timeoutsRemaining() > 0,
+        label: () => timeoutEntryState(this.services).label,
+        enabled: () => timeoutEntryState(this.services).enabled,
         run: () => {
+          if (!timeoutEntryState(this.services).enabled) return;
           this.services.requestTimeout();
           this.blip('timeoutHorn');
           this.manager.pop();

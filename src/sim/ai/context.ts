@@ -34,8 +34,18 @@ export interface AiCtx {
   /** Team that snapped the ball. */
   offense: TeamSide;
   defense: TeamSide;
-  /** Attack direction of the snapping offense. */
+  /**
+   * Attack direction of the snapping offense. This is the PLAY FRAME: routes,
+   * coverage, blocking, gaps and special-teams geometry are all authored
+   * against it and must keep using it even after a turnover. For "the way this
+   * ball carrier is running" use `carrierDir` / `attackDirOf` instead.
+   */
   dir: Dir;
+  /**
+   * Attack direction of the team currently holding a live ball — flips with
+   * `ballTeam` on an interception, fumble recovery or kick return.
+   */
+  carrierDir: Dir;
   los: number;
   /** Ticks since the snap (>= 0). */
   t: number;
@@ -78,6 +88,8 @@ export function makeCtx(
     if (p && p.assignment.kind === 'qb') { qbIdx = i; break; }
   }
 
+  const ballTeam: TeamSide = carrier ? carrier.team : offense;
+
   return {
     state,
     play,
@@ -89,13 +101,23 @@ export function makeCtx(
     offense,
     defense,
     dir,
+    carrierDir: state.attackDir[ballTeam],
     los: play.lineOfScrimmageY,
     t: state.tick - play.snapTick,
     carrierIdx,
-    ballTeam: carrier ? carrier.team : offense,
+    ballTeam,
     qbIdx,
     ballInAir: ball.mode === 'pass' || ball.mode === 'pitch' || ball.mode === 'kick' || ball.mode === 'punt',
   };
+}
+
+/**
+ * The direction `team` attacks — the way ITS ball carrier runs. Never use
+ * `ctx.dir` for that: it is the snapping offense's direction and stays that way
+ * for the whole play, so a defender who intercepts would run backwards.
+ */
+export function attackDirOf(ctx: AiCtx, team: TeamSide): Dir {
+  return ctx.state.attackDir[team];
 }
 
 /** A player who cannot act this tick (down, stumbling, mid-dive). */

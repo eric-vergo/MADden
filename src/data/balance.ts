@@ -148,7 +148,15 @@ export const QB_AI = {
 export const KICK = {
   meterFillTicks: 50, // power bar 0->1
   meterSweepTicks: 50, // accuracy marker sweep back
-  kickoffDistBase: 45, kickoffDistPerPower: 30, // * power01 * (KPW/99)
+  /**
+   * Kickoff carry. At 45 every kickoff came down within a yard or two of the
+   * goal line, so the league had literally zero touchbacks: every kick was
+   * fielded at the receiving 5 and returned to about the 16, which left drives
+   * starting ten yards worse than real football and put a pass every few series
+   * in the shadow of a team's own goal posts. 52 puts a good kicker into the end
+   * zone (touchback, ball on the 30) and leaves the weaker legs returnable.
+   */
+  kickoffDistBase: 52, kickoffDistPerPower: 30, // * power01 * (KPW/99)
   kickoffHangSecMin: 3.6, kickoffHangSecMax: 4.2,
   puntDistBase: 35, puntDistPerPower: 25,
   puntHangSec: 4.3,
@@ -258,6 +266,34 @@ export const CALIBRATION = {
   fgAttPerGameMin: 1, fgAttPerGameMax: 5,
   playsPerGameMin: 95, playsPerGameMax: 140,
   ovrEdge10WinRateMin: 0.7, ovrEdge10WinRateMax: 0.85,
+
+  // -------------------------------------------------------------------------
+  // Special teams and situational football. These only became measurable once
+  // returns ran the right way and the own-impetus rule existed, so they are
+  // bands over the SHAPE of the football rather than over the box score.
+  // -------------------------------------------------------------------------
+  /** Average kickoff return, over the returns that were actually run back. */
+  kickReturnMeanMin: 15, kickReturnMeanMax: 30,
+  /** At least one return this long has to turn up: returns need a tail. */
+  kickReturnLongYd: 40,
+  /**
+   * Safeties per game. The NFL sits near 0.05; this sim runs a little hotter
+   * because drives start further back, and every one it produces is a sack or
+   * a stuffed run in the offense's own end zone (never a return, which is what
+   * the impetus rule is there to prevent).
+   */
+  safetiesPerGameMax: 0.35,
+  /**
+   * Defensive and return touchdowns per game (pick-six, scoop-and-score, kick
+   * return). Real football is nearer 0.15. The ceiling here is deliberately
+   * loose: pass rushers still make uncontested interceptions at the line of
+   * scrimmage, and with the offense backed up those become walk-in scores. The
+   * band exists to catch the two regressions that matter — a defense that can
+   * never score, and one that scores every other drive.
+   */
+  defensiveTdPerGameMax: 1.0,
+  /** Pass interference per game: it must exist, and it must stay rare. */
+  passInterferencePerGameMax: 1.0,
 } as const;
 
 // ===========================================================================
@@ -405,6 +441,14 @@ export const PURSUIT_AI = {
   runFitDepthYd: 1.0,
   /** Rank-based cutoff lanes: each extra rank aims this much further ahead. */
   cutoffBaseLeadYd: 2.0, cutoffPerRankYd: 1.5,
+  /**
+   * A real pursuit angle also scales with how far BEHIND the chaser is: a man
+   * 30 yards back who aims 8 yards in front of the runner is running his tail
+   * forever. Without this, one broken tackle in the open field was permanent —
+   * kick returns were bimodal (stopped at 11 yards, or 85 and gone) because no
+   * second wave could ever arrive.
+   */
+  cutoffDistLeadFrac: 0.3, cutoffMaxLeadYd: 22,
   angleNoiseRefreshTicks: 20,
   tackleCooldownTicks: 8,
   /** dot(carrierHeading, carrier→tackler) above this = chasing from behind. */

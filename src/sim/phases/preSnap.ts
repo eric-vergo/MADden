@@ -192,6 +192,13 @@ export function preSnapPhase(
 
   // User pre-snap movement with a lineman selected is a false start.
   const userTeam = s.config.userTeam;
+
+  // Hard count: the quarterback's cadence tries to jump the defense. It arms
+  // for the rest of this pre-snap and is spent at the snap roll below.
+  if (userTeam === offense && input.frame.pressed.has(GameAction.HardCount)) {
+    e.hardCount = true;
+  }
+
   if (
     s.config.penaltiesEnabled && userTeam === offense && p.controlledIdx >= 0 &&
     Math.hypot(input.frame.move.x, input.frame.move.y) > 0.25
@@ -238,7 +245,8 @@ export function preSnapPhase(
       enforceDeadBallFoul(s, flag, events);
       return;
     }
-    if (rng.penalties.chance(PENALTY.cpuOffsidePerSnap * PENALTY.frequency) && userTeam !== defense) {
+    const offsideP = e.hardCount ? PENALTY.offsideVsHardCount : PENALTY.cpuOffsidePerSnap;
+    if (rng.penalties.chance(offsideP * PENALTY.frequency) && userTeam !== defense) {
       const idx = findRole(p, 'LE');
       const flag: PenaltyFlag = {
         kind: 'encroachment', team: defense, playerIdx: idx < 0 ? null : idx,

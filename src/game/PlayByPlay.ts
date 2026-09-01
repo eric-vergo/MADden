@@ -75,6 +75,8 @@ export class PlayByPlay {
   private lastFgDistance = 0;
   private lastFgSide: 'left' | 'right' | 'short' | null = null;
   private lastKickStyle: 'kickoff' | 'punt' | 'placekick' | null = null;
+  /** PLAY_RESULT.carrierIdx is the returner (or null) — the kicker comes from here. */
+  private lastKickerIdx: number | null = null;
   private lastInterceptorIdx: number | null = null;
   private lastFumbleRecovererIdx: number | null = null;
   private lastFumbleTeam: TeamSide | null = null;
@@ -122,10 +124,10 @@ export class PlayByPlay {
 
   // --- naming ---------------------------------------------------------------
 
-  private nameOf(state: Readonly<GameState>, idx: number | null): string {
-    if (idx === null || idx < 0) return 'the runner';
+  private nameOf(state: Readonly<GameState>, idx: number | null, fallback = 'the runner'): string {
+    if (idx === null || idx < 0) return fallback;
     const player = state.play?.players[idx];
-    if (player === undefined) return 'the runner';
+    if (player === undefined) return fallback;
     for (const roster of state.rosters) {
       for (const a of roster.athletes) {
         if (a.id === player.athleteId) {
@@ -164,6 +166,7 @@ export class PlayByPlay {
     this.lastFgDistance = 0;
     this.lastFgSide = null;
     this.lastKickStyle = null;
+    this.lastKickerIdx = null;
     this.lastInterceptorIdx = null;
     this.lastFumbleRecovererIdx = null;
     this.lastFumbleTeam = null;
@@ -191,6 +194,7 @@ export class PlayByPlay {
 
       case 'KICK_LAUNCHED':
         this.lastKickStyle = ev.style;
+        this.lastKickerIdx = ev.kickerIdx;
         break;
 
       case 'PUNT_DOWNED':
@@ -344,23 +348,25 @@ export class PlayByPlay {
       case 'scramble':
         this.post(state, 8, { qb: carrier, yds });
         return;
-      case 'fieldGoal':
+      case 'fieldGoal': {
+        const kicker = this.nameOf(state, this.lastKickerIdx, 'the kicker');
         if (this.lastFgSide === null) {
           this.post(state, 13, {
-            kicker: carrier,
+            kicker,
             dist: Math.round(this.lastFgDistance),
           });
         } else {
           this.post(state, 14, {
-            kicker: carrier,
+            kicker,
             dist: Math.round(this.lastFgDistance),
             side: this.lastFgSide === 'short' ? 'and short' : this.lastFgSide,
           });
         }
         return;
+      }
       case 'punt':
         this.post(state, 15, {
-          punter: carrier,
+          punter: this.nameOf(state, this.lastKickerIdx, 'the punter'),
           dist: Math.max(0, Math.round(Math.abs(ev.yards))),
           spot: this.spot(state, this.lastPuntSpotY ?? state.ballOnY),
         });

@@ -30,7 +30,13 @@ export function dirOf(s: GameState, team: TeamSide): Dir {
   return s.attackDir[team];
 }
 
-/** Put the ball down for a fresh series. */
+/**
+ * Put the ball down for a fresh series.
+ * Deliberately does NOT touch ext.ballOnX: the lateral dead-ball spot is
+ * computed by PLAY_DEAD (snapToHash) before the series is applied, and the next
+ * snap comes from that hash. Only the placements that genuinely re-centre the
+ * ball — kickoffs and tries — reset it, below.
+ */
 export function setSeries(
   s: GameState,
   possession: TeamSide,
@@ -42,7 +48,6 @@ export function setSeries(
   s.ballOnY = ballOnY;
   s.down = down;
   s.toGo = toGo;
-  ext(s).ballOnX = DEFAULT_BALL_X;
 }
 
 export function setFirstAndTen(s: GameState, possession: TeamSide, ballOnY: number): void {
@@ -56,6 +61,7 @@ export function setupKickoff(s: GameState, kickingTeam: TeamSide, free = false):
     ? ownYardLineY(20, dir)
     : ownYardLineY(KICKOFF_SPOT_FROM_OWN_GOAL, dir);
   setSeries(s, kickingTeam, spot, 1, 10);
+  ext(s).ballOnX = DEFAULT_BALL_X;
   s.nextPlayKind = free ? 'freeKick' : 'kickoff';
   s.clockRunning = false;
   ext(s).startClockOnSnap = false;
@@ -68,6 +74,7 @@ export function setupPat(s: GameState, scoringTeam: TeamSide, two: boolean): voi
     ? oppYardLineY(TWO_POINT_FROM_GOAL_YD, dir)
     : oppYardLineY(XP_SNAP_FROM_GOAL_YD, dir);
   setSeries(s, scoringTeam, spot, 1, 10);
+  ext(s).ballOnX = DEFAULT_BALL_X;
   s.nextPlayKind = 'pat';
   s.clockRunning = false;
   ext(s).startClockOnSnap = false;
@@ -100,11 +107,15 @@ export function shouldGoForTwo(diff: number, quarter: number): boolean {
 }
 
 /**
- * Modified sudden death: a score ends overtime once both teams have had a
- * possession, and immediately on a touchdown or safety.
+ * Modified sudden death. Only a SCORE can end overtime: a touchdown, safety or
+ * returned try ends it the moment it happens, anything else (a field goal) ends
+ * it once both teams have had a possession. A dead ball that scored nothing
+ * never ends the game, however lopsided the scoreboard is — the trailing team
+ * still has its answering drive.
  */
 export function overtimeDecided(s: GameState, lastScoreKind: string | null): boolean {
   if (s.quarter < 5) return false;
+  if (lastScoreKind === null) return false;
   if (s.score[0] === s.score[1]) return false;
   if (lastScoreKind === 'td' || lastScoreKind === 'safety' || lastScoreKind === 'two') return true;
   return s.otPossessions[0] && s.otPossessions[1];

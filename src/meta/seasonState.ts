@@ -8,8 +8,12 @@ import type {
   SeasonPhase, SeasonState, StandingRow, StoredBoxScore, Team,
 } from './types';
 import { generateLeague } from './league';
-import { REGULAR_SEASON_WEEKS, findTeamGame, gamesInWeek, generateSchedule } from './schedule';
-import { computeStandings, sortStandings, type SortContext } from './standings';
+import {
+  REGULAR_SEASON_WEEKS, divisionGroups, findTeamGame, gamesInWeek, generateSchedule,
+} from './schedule';
+import {
+  computeStandings, rowsFor, sortStandings, winPct, type SortContext,
+} from './standings';
 import {
   APEX_BOWL_WEEK, CONF_FINAL_WEEK, SEMIS_WEEK, advance, championOf, createBracket,
 } from './playoffs';
@@ -83,9 +87,26 @@ export function sortContext(state: Readonly<SeasonState>): SortContext {
   };
 }
 
+/**
+ * Every team, best-first, with each division internally ordered exactly the way
+ * `seedConference` orders it — the same `sortStandings` call, over the same
+ * four-team set. Head-to-head only breaks a two-team tie, so a division-scoped
+ * pass and a league-wide pass disagree whenever the league-wide run of equal
+ * win% is not exactly that pair; ordering per division and *then* merging by
+ * win% (a stable sort, so a division's internal order survives) is what keeps
+ * the Standings tab and the playoff bracket from naming different division
+ * winners.
+ */
 export function standingsOf(state: Readonly<SeasonState>): StandingRow[] {
   const rows = computeStandings(state.league.teams, state.schedule, REGULAR_SEASON_WEEKS);
-  return sortStandings(rows, sortContext(state));
+  const ctx = sortContext(state);
+  const groups = divisionGroups(state.league.teams);
+  const ordered: StandingRow[] = [];
+  for (let g = 0; g < groups.length; g++) {
+    const members = sortStandings(rowsFor(rows, new Set(req(groups, g))), ctx);
+    for (let i = 0; i < members.length; i++) ordered.push(req(members, i));
+  }
+  return ordered.sort((a, b) => winPct(b) - winPct(a));
 }
 
 export function currentWeekGames(state: Readonly<SeasonState>): ScheduledGame[] {

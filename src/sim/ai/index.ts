@@ -192,6 +192,20 @@ function isBallTeamBlocker(ctx: AiCtx, i: number, p: SimPlayer): boolean {
   return ctx.carrierIdx >= 0 && i !== ctx.carrierIdx && p.team === ctx.ballTeam;
 }
 
+/** Assignments that already own their post-turnover behavior. */
+const KEEPS_OWN_BRAIN = new Set(['coverLane', 'kick', 'hold']);
+
+/**
+ * A player on the team that snapped the ball, after the other team has taken
+ * it away (interception, fumble recovery). Kick/punt coverage is excluded:
+ * there the receiving team holding the ball is the normal course of the play.
+ */
+function isTurnoverChaser(ctx: AiCtx, i: number, p: SimPlayer): boolean {
+  return ctx.carrierIdx >= 0 && i !== ctx.carrierIdx
+    && p.team === ctx.offense && ctx.ballTeam !== ctx.offense
+    && !KEEPS_OWN_BRAIN.has(p.assignment.kind);
+}
+
 function dispatch(ctx: AiCtx, i: number): void {
   const p = ctx.players[i];
   if (!p) return;
@@ -213,6 +227,12 @@ function dispatch(ctx: AiCtx, i: number): void {
       return;
     }
   }
+
+  // A turnover flips jobs both ways. The ball team blocks (below); the team
+  // that just LOST the ball has to chase the new carrier instead of finishing
+  // its routes and pass protection. Special-teams coverage keeps its own brain
+  // (updateCoverLane already converges, and contain men must stay outside).
+  if (isTurnoverChaser(ctx, i, p)) { updatePursuit(ctx, i); return; }
 
   // Skill players on the ball team block once a runner is loose.
   if (isBallTeamBlocker(ctx, i, p)) {

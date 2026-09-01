@@ -32,6 +32,14 @@ export const EFFECT_STYLE = {
   /** Skip hint size, relative to the REPLAY wordmark. */
   replayHintScale: 0.52,
   /**
+   * Skip hint copy. It has to name keys the REPLAY context actually resolves:
+   * that scope is empty (input/Bindings.ts) and falls through to GLOBAL, so
+   * only the arrows/WASD, Enter and Escape produce a pressed action — Space,
+   * Tab and the digits do nothing. The old "ANY KEY TO SKIP" promised a
+   * behaviour the input layer does not have.
+   */
+  replaySkipHint: 'ENTER OR ESC TO SKIP',
+  /**
    * Kick meter baseline, in CSS px above the bottom edge at uiScale 1. It has
    * to clear the HUD ticker line, whose box tops out 112px above the bottom
    * (strip margin 14 + strip height 44 + ticker offset 54); the meter hangs
@@ -389,7 +397,7 @@ export class EffectsRenderer {
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(245,247,250,0.62)';
-    ctx.fillText('ANY KEY TO SKIP', cam.widthCss - 24 * s, cam.heightCss - bar / 2);
+    ctx.fillText(EFFECT_STYLE.replaySkipHint, cam.widthCss - 24 * s, cam.heightCss - bar / 2);
 
     const blinkOn = opts.tick % TICK_HZ < TICK_HZ * 0.66;
     if (!blinkOn) return;

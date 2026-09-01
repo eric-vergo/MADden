@@ -124,6 +124,19 @@ const REPLAY_MAX_SOURCE_TICKS = TICK_HZ * 4;
 /** Dead-ball frames kept so the replay ends ON the tackle, not before it. */
 const REPLAY_TAIL_TICKS = 30;
 
+/** Phases whose handlers read a TIMEOUT SimCommand. */
+const TIMEOUT_COMMAND_PHASES: ReadonlySet<GamePhase> = new Set([
+  GamePhase.PLAY_CALL, GamePhase.PRE_SNAP,
+]);
+/** Dead-ball beats a queued timeout waits through on its way to PLAY_CALL. */
+const TIMEOUT_HOLD_PHASES: ReadonlySet<GamePhase> = new Set([
+  GamePhase.PLAY_DEAD, GamePhase.PENALTY_DECISION, GamePhase.POINT_AFTER_CHOICE,
+]);
+/** Phases a timeout may be asked for in at all (the ball has to be dead). */
+const TIMEOUT_PHASES: ReadonlySet<GamePhase> = new Set([
+  ...TIMEOUT_COMMAND_PHASES, ...TIMEOUT_HOLD_PHASES,
+]);
+
 /** Difficulties that get the pre-snap coverage hint under the 'auto' setting. */
 const AUTO_HINT_DIFFICULTIES: ReadonlySet<string> = new Set(['rookie', 'pro']);
 
@@ -142,6 +155,8 @@ export class GameSession {
   private settings: SettingsSave | null;
 
   private queued: SimCommand[] = [];
+  /** A timeout asked for on a beat that cannot honour it yet. */
+  private pendingTimeout = false;
   private prevSnap: TickSnapshot;
   private currSnap: TickSnapshot;
   private pausedFlag = false;
@@ -272,6 +287,11 @@ export class GameSession {
     this.replayTrigger.reset();
     this.replayBuffer.clear();
     this.renderer?.camera?.setZoom(1);
+    // The App hands one Renderer to every session, and effects are timed in
+    // absolute sim ticks. A burst left over from tick 3600 of this game is
+    // neither pruned nor drawn by a new game starting at tick 0 — it just waits
+    // there and fires again when the new clock reaches 3600.
+    this.renderer?.effects?.clear();
     this.renderer = null;
   }
 
@@ -288,10 +308,45 @@ export class GameSession {
     this.queueCommand({ type: 'SELECT_PLAY', team: user, side, playId });
   }
 
+  /**
+   * A timeout is legal only with the ball dead. PLAY_DEAD is the beat a real
+   * timeout is called on, so it counts even though no phase handler reads the
+   * command there — requestTimeout holds the request until PLAY_CALL/PRE_SNAP.
+   */
+  canCallTimeout(): boolean {
+    const s = this.sim.state;
+    const user = s.config.userTeam;
+    if (user === null || s.timeouts[user] <= 0) return false;
+    return TIMEOUT_PHASES.has(s.phase);
+  }
+
   requestTimeout(): void {
     const user = this.userTeam;
     if (user === null) return;
-    this.queueCommand({ type: 'TIMEOUT', team: user });
+    if (!this.canCallTimeout()) return;
+    if (TIMEOUT_COMMAND_PHASES.has(this.sim.state.phase)) {
+      this.queueCommand({ type: 'TIMEOUT', team: user });
+      return;
+    }
+    // PLAY_DEAD (and the modal beats it routes through) drop the command, and
+    // the queue is emptied every tick, so hold it until a phase honours it.
+    this.pendingTimeout = true;
+  }
+
+  /** Deliver (or abandon) a timeout asked for on the dead-ball beat. */
+  private flushPendingTimeout(): void {
+    if (!this.pendingTimeout) return;
+    const s = this.sim.state;
+    const user = s.config.userTeam;
+    if (user === null || s.timeouts[user] <= 0) { this.pendingTimeout = false; return; }
+    if (TIMEOUT_COMMAND_PHASES.has(s.phase)) {
+      this.pendingTimeout = false;
+      this.queueCommand({ type: 'TIMEOUT', team: user });
+      return;
+    }
+    // Still on a dead-ball beat: keep waiting. Anything else (the next snap,
+    // a quarter break, the end of the game) means the moment has passed.
+    if (!TIMEOUT_HOLD_PHASES.has(s.phase)) this.pendingTimeout = false;
   }
 
   decidePenalty(choice: 'accept' | 'decline'): void {
@@ -365,6 +420,7 @@ export class GameSession {
     this.lastContext = context;
 
     this.readFrame(frame, context);
+    this.flushPendingTimeout();
     this.autoAdvanceBreaks();
 
     const commands = this.queued;
@@ -583,9 +639,7 @@ export class GameSession {
       return;
     }
 
-    if (frame.pressed.has(GameAction.Timeout) && s.timeouts[user] > 0) {
-      this.queueCommand({ type: 'TIMEOUT', team: user });
-    }
+    if (frame.pressed.has(GameAction.Timeout)) this.requestTimeout();
 
     if (context === InputContext.DEFENSE && frame.pressed.has(GameAction.SwitchPlayer)) {
       this.switchToNearestDefender();

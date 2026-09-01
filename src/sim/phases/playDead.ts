@@ -49,6 +49,15 @@ interface SeriesResult {
 function applySeries(s: GameState, o: PlayOutcome): SeriesResult {
   const e = ext(s);
   const spot = o.spotY;
+  // Possession changed twice on one play (an interception or fumble the other
+  // side lost straight back). The ball still changed hands, so the recovering
+  // team starts a fresh series at the recovery spot — and the play is not a
+  // turnover charged to the team that ended up with the ball.
+  if (!o.changeOfPossession && o.turnover !== null && o.turnover !== 'downs') {
+    o.turnover = null;
+    setFirstAndTen(s, o.possessionAfter, spot);
+    return { firstDown: false, turnoverOnDowns: false };
+  }
   if (o.changeOfPossession) {
     setFirstAndTen(s, o.possessionAfter, spot);
     return { firstDown: false, turnoverOnDowns: false };
@@ -122,6 +131,16 @@ function applyOutcome(s: GameState, o: PlayOutcome, events: SimEvent[]): void {
   o.spotX = snapToHash(o.spotX);
   e.ballOnX = o.spotX;
 
+  // Nothing scored on a try is a touchdown. A defense that returns a blocked
+  // kick or a pick to the other end scores a two-point conversion, not six, and
+  // the try is over either way — there is never a try after a try.
+  if (patPlay && o.scoreKind === 'td') {
+    o.scoreKind = 'two';
+    o.points = 2;
+    o.touchdown = false;
+    events.push({ type: 'TWO_POINT_RESULT', tick: s.tick, team: o.possessionAfter, good: true });
+  }
+
   let firstDown = false;
   let turnoverOnDowns = false;
 
@@ -141,7 +160,9 @@ function applyOutcome(s: GameState, o: PlayOutcome, events: SimEvent[]): void {
     addPoints(s, offense, 1);
     setupKickoff(s, offense);
   } else if (o.scoreKind === 'two') {
-    addPoints(s, offense, 2);
+    // A defense that returns a try scores the two points itself; the team that
+    // scored the touchdown still kicks off either way.
+    addPoints(s, o.possessionAfter, 2);
     setupKickoff(s, offense);
   } else if (patPlay) {
     if (p.offensePlay.type === 'twoPoint') {
@@ -164,13 +185,16 @@ function applyOutcome(s: GameState, o: PlayOutcome, events: SimEvent[]): void {
     events.push({ type: 'TURNOVER_ON_DOWNS', tick: s.tick, team: offense });
   }
   if (isScrimmagePlay(o) && e.prePlay.down === 3) {
-    recordThirdDown(s, offense, firstDown);
+    // A third-down touchdown converts — applySeries never runs on a score, so
+    // `firstDown` alone would book every one of them as a failure.
+    const scoredTd = o.scoreKind === 'td' && o.possessionAfter === offense;
+    recordThirdDown(s, offense, firstDown || scoredTd);
   }
 
   accumulatePlay(s, p, e.playEvents, o, offense);
 
   const [home, away] = teamAbbrevs(s);
-  const text = `${describeState(e.prePlay.down, e.prePlay.toGo, e.prePlay.ballOnY, s.attackDir[offense], home, away)}: ${o.playType} for ${Math.round(o.yards)}`;
+  const text = `${describeState(e.prePlay.down, e.prePlay.toGo, e.prePlay.ballOnY, s.attackDir[offense], home, away, s.attackDir[0])}: ${o.playType} for ${Math.round(o.yards)}`;
 
   events.push({
     type: 'PLAY_RESULT', tick: s.tick, offense,

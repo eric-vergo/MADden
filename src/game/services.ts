@@ -50,6 +50,7 @@ export interface GameServicesHost {
   continueFromHalftime(): void;
   requestTimeout(): void;
   timeoutsRemaining(): number;
+  canCallTimeout?(): boolean;
   onSettingsChanged?(settings: SettingsSave): void;
   onSeasonChanged?(season: SeasonState | null): void;
 }
@@ -339,17 +340,20 @@ export class GameServices implements UiServices {
       const row = standings.find((r) => r.teamId === teamId);
       return row ? formatRecord(row.w, row.l, row.t) : '0-0';
     };
+    // The user can be out of the week entirely (eliminated from the playoffs).
+    // The week still has to be simmable, so a view is returned — but nothing in
+    // it may claim some other club's game as the user's matchup.
     const target = userGame ?? games[0];
     if (!target) return null;
-    const userIsHome = target.homeId === season.userTeamId;
-    const opponentId = userIsHome ? target.awayId : target.homeId;
+    const userIsHome = userGame !== null && target.homeId === season.userTeamId;
+    const opponentId = userGame === null ? '' : userIsHome ? target.awayId : target.homeId;
     return {
       week: season.currentWeek,
       game: target,
       opponentId,
       userIsHome,
       userRecord: recordOf(season.userTeamId),
-      opponentRecord: recordOf(opponentId),
+      opponentRecord: opponentId === '' ? '—' : recordOf(opponentId),
       userGameResolved: userGame === null || userGame.result !== undefined,
       weekGames: views,
       roundLabel: roundLabel(season.currentWeek),
@@ -504,6 +508,12 @@ export class GameServices implements UiServices {
 
   timeoutsRemaining(): number {
     return this.host.timeoutsRemaining();
+  }
+
+  canCallTimeout(): boolean {
+    const ask = this.host.canCallTimeout;
+    if (ask === undefined) return this.host.timeoutsRemaining() > 0;
+    return ask.call(this.host);
   }
 
   continueFromHalftime(): void {

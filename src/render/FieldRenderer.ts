@@ -54,7 +54,10 @@ export interface FieldTheme {
 
 /**
  * Map the two teams onto the two end zones. A team defends the low-y end zone
- * while it attacks +y.
+ * while it attacks +y, and swapEnds() flips attackDir at every quarter break —
+ * so the end zones really do change hands. The midfield disc does not: it is
+ * paint on the home team's stadium floor, and it stays with teams[0] no matter
+ * which way anyone is attacking.
  */
 export function fieldThemeFromTeams(
   teams: readonly [TeamPresentation, TeamPresentation],
@@ -64,6 +67,7 @@ export function fieldThemeFromTeams(
   const highDefender: TeamSide = lowDefender === 0 ? 1 : 0;
   const low = teams[lowDefender];
   const high = teams[highDefender];
+  const host = teams[0];
   return {
     low: {
       color: low.colors.primary,
@@ -75,8 +79,8 @@ export function fieldThemeFromTeams(
       textColor: high.colors.secondary,
       text: high.nickname.toUpperCase(),
     },
-    midfieldLogo: low.logo,
-    midfieldLetter: low.city.slice(0, 1).toUpperCase(),
+    midfieldLogo: host.logo,
+    midfieldLetter: host.city.slice(0, 1).toUpperCase(),
   };
 }
 
@@ -251,18 +255,42 @@ function drawMidfield(ctx: Ctx2D, ppy: number, theme: FieldTheme): void {
 // Surface + blit
 // ---------------------------------------------------------------------------
 
+/**
+ * Sampling headroom baked into the surface so an ordinary zoom-in is a cache
+ * hit. It has to cover the replay zoom (GameSession's REPLAY_ZOOM = 1.15).
+ * Where FIELD_STYLE.maxSurfacePixels binds this is free — the budget fixes the
+ * total pixel count regardless of the yard scale the paint is authored at.
+ */
+const SURFACE_ZOOM_HEADROOM = 1.25;
+/** Float slack on the cached sampling rate — an exact re-request is a hit. */
+const PPY_SLACK = 1e-6;
+/** Below this fraction of the cached rate the surface is oversized; rebuild. */
+const PPY_MIN_FRACTION = 0.5;
+
 export class FieldRenderer {
   private surface: HTMLCanvasElement | null = null;
   private surfaceScale = 1;
   private ppy = 0;
   private key = '';
 
-  /** Rebuild the offscreen field when scale, DPR, or teams change. */
+  /**
+   * Rebuild the offscreen field when DPR or the teams change. Scale is NOT part
+   * of the key: `blit` resamples the surface to whatever the camera is at, so
+   * the sampling rate only has to be *enough*. Every big-play replay pushes the
+   * zoom 1 -> 1.15 -> 1, and keying on pxPerYard threw away a surface of up to
+   * FIELD_STYLE.maxSurfacePixels and repainted all 120 yards on both edges of
+   * the highlight. The surface is rebuilt only when the camera has zoomed in
+   * past what it holds (upsampling would go soft) or so far out that keeping it
+   * is a waste of memory.
+   */
   ensure(cam: Camera, theme: FieldTheme): void {
-    const key = `${cam.pxPerYard.toFixed(3)}|${cam.dpr.toFixed(2)}|${fieldThemeKey(theme)}`;
-    if (key === this.key && this.surface) return;
+    const key = `${cam.dpr.toFixed(2)}|${fieldThemeKey(theme)}`;
+    const sharpEnough = this.ppy > 0
+      && cam.pxPerYard <= this.ppy * (1 + PPY_SLACK)
+      && cam.pxPerYard >= this.ppy * PPY_MIN_FRACTION;
+    if (key === this.key && sharpEnough && this.surface) return;
     this.key = key;
-    this.ppy = cam.pxPerYard;
+    this.ppy = cam.pxPerYard * SURFACE_ZOOM_HEADROOM;
     this.surface = null;
     if (typeof document === 'undefined') return;
 
@@ -351,5 +379,6 @@ export class FieldRenderer {
   invalidate(): void {
     this.surface = null;
     this.key = '';
+    this.ppy = 0;
   }
 }

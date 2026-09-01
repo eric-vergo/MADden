@@ -3,7 +3,7 @@
 // read from `curr` / GameState.
 
 import { TICK_HZ } from '../sim/constants';
-import type { BallMode, GameState, TickSnapshot } from '../sim/types';
+import type { BallMode, GameState, KickMeterState, TickSnapshot } from '../sim/types';
 import { Camera } from './Camera';
 import type { Ctx2DImage } from './ctx';
 import { EffectsRenderer } from './EffectsRenderer';
@@ -19,6 +19,31 @@ const IN_FLIGHT: ReadonlySet<BallMode> = new Set<BallMode>(['pass', 'kick', 'pun
 function lerpAngle(a: number, b: number, t: number): number {
   const d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
   return a + d * t;
+}
+
+/** Roles the sim hands the user when it wants them to work the kick meter. */
+const KICKER_ROLES: ReadonlySet<string> = new Set(['K', 'P']);
+
+/**
+ * The kick meter the viewer should see, or null.
+ *
+ * `kickMeter.active` is armed for EVERY kick (preSnap arms it before it knows
+ * or cares who is watching), but the sim only lets a human drive it when the
+ * controlled player is the kicker — `kick.auto = play.controlledIdx !== kickerIdx`,
+ * and chooseControlled hands the user the K/P exactly when their team kicks.
+ * The meter is an input affordance, so showing it for anyone else puts a POWER
+ * bar and an aim arrow on screen that nothing the viewer does can move.
+ */
+export function userKickMeter(
+  meter: KickMeterState | null,
+  state: Readonly<GameState>,
+): KickMeterState | null {
+  if (meter === null || !meter.active) return null;
+  const play = state.play;
+  if (play === null) return null;
+  const controlled = play.players[play.controlledIdx];
+  if (controlled === undefined) return null;
+  return KICKER_ROLES.has(controlled.role) ? meter : null;
 }
 
 export class Renderer {
@@ -104,7 +129,7 @@ export class Renderer {
       tick,
       uiScale: uiScale(cam),
       teams: extras.teams,
-      kickMeter: curr.kickMeter,
+      kickMeter: userKickMeter(curr.kickMeter, state),
       yardagePopup: extras.yardagePopup,
       banner: extras.banner,
       replay: extras.replay,

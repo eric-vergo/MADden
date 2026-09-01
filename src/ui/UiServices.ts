@@ -208,6 +208,12 @@ export interface UiServices {
   canRestartGame(): boolean;
   requestTimeout(): void;
   timeoutsRemaining(): number;
+  /**
+   * Whether a timeout may be called right now (the ball has to be dead).
+   * Optional so fixtures that predate it keep working; when it is absent the
+   * pause menu falls back to the raw count.
+   */
+  canCallTimeout?(): boolean;
   continueFromHalftime(): void;
   finishGameSummary(): void;
 }

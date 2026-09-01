@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import { GamePhase } from '../src/sim/types';
 import { runHeadlessGame } from './harness/headlessGame';
+import { maxOf, mean, measureFootballShape } from './fixes-balance/footballShape';
 import { CALIBRATION } from '../src/data/balance';
 
 const SOAK = import.meta.env.MODE === 'soak';
@@ -145,5 +146,52 @@ describe.skipIf(!SOAK)('balance soak', () => {
     const passShare = totals.passAtt / Math.max(1, totals.passAtt + totals.rushAtt);
     expect(passShare, summary).toBeGreaterThan(0.45);
     expect(passShare, summary).toBeLessThan(0.80);
+  }, 180_000);
+
+  // Half the slate, because this one has to walk the sim tick by tick: the
+  // reception that starts a return emits no event and SimStats has no return
+  // columns, so there is nowhere else to read these numbers from.
+  it('produces league-realistic special teams and situational football', () => {
+    const games = GAMES / 2;
+    const shape = measureFootballShape(SEED_BASE, games);
+    const kr = shape.kickReturns;
+
+    const summary = JSON.stringify({
+      games,
+      kickReturns: {
+        n: kr.length, mean: +mean(kr).toFixed(1), max: +maxOf(kr).toFixed(1),
+      },
+      puntReturns: { n: shape.puntReturns.length, mean: +mean(shape.puntReturns).toFixed(1) },
+      touchbacks: shape.touchbacks,
+      safeties: shape.safeties, safetyPlayTypes: shape.safetyPlayTypes,
+      pickSixes: shape.pickSixes, fumbleSixes: shape.fumbleSixes, returnTds: shape.returnTds,
+      interceptions: shape.interceptions,
+      flags: shape.flags,
+    });
+
+    // Kick returns exist at all, go the right way, and are worth running back.
+    // (Every one of these used to end as a touchback, because the returner ran
+    // backwards into his own end zone.)
+    expect(kr.length, `no kick returns at all ${summary}`).toBeGreaterThan(games);
+    expect(mean(kr), summary).toBeGreaterThanOrEqual(CALIBRATION.kickReturnMeanMin);
+    expect(mean(kr), summary).toBeLessThanOrEqual(CALIBRATION.kickReturnMeanMax);
+    // A return game with no tail is a return game that has been flattened.
+    expect(maxOf(kr), `no long return in the slate ${summary}`)
+      .toBeGreaterThan(CALIBRATION.kickReturnLongYd);
+    // ...and a kickoff deep enough to sit down on has to still be a touchback.
+    expect(shape.touchbacks, `no touchbacks in the slate ${summary}`).toBeGreaterThan(0);
+
+    expect(shape.safeties / games, summary)
+      .toBeLessThanOrEqual(CALIBRATION.safetiesPerGameMax);
+
+    // Defensive scores: possible (the carrier-direction fix) but not routine.
+    const defTds = shape.pickSixes + shape.fumbleSixes + shape.returnTds;
+    expect(defTds / games, summary).toBeLessThanOrEqual(CALIBRATION.defensiveTdPerGameMax);
+
+    // Pass interference must be reachable — no code created a DPI or OPI flag
+    // at all before phase 3 — and must stay a rare, game-changing call.
+    const pi = (shape.flags['dpi'] ?? 0) + (shape.flags['opi'] ?? 0);
+    expect(pi, `pass interference is never called ${summary}`).toBeGreaterThan(0);
+    expect(pi / games, summary).toBeLessThanOrEqual(CALIBRATION.passInterferencePerGameMax);
   }, 180_000);
 });

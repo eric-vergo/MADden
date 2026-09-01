@@ -45,6 +45,9 @@ const CROWD = {
   deflateSec: 3.0,
 } as const;
 
+/** How long a stopped bed keeps running so its gain ramp has something to fade. */
+const CROWD_STOP_TAIL_SEC = 1.0;
+
 const UI_SFX: ReadonlySet<SfxName> = new Set<SfxName>([
   'menuMove', 'menuSelect', 'menuBack', 'menuError',
 ]);
@@ -123,6 +126,8 @@ export class WebAudioEngine implements AudioEngine {
   private dipUntil = 0;
   private fastUntil = 0;
   private ambienceStopped = false;
+  /** Bed still sounding out its fade after stopAmbience; reclaimed on restart. */
+  private crowdTail: { src: AudioBufferSourceNode; stopAt: number } | null = null;
 
   /** True once the AudioContext exists (i.e. after a user gesture). */
   get ready(): boolean {
@@ -189,12 +194,28 @@ export class WebAudioEngine implements AudioEngine {
   private startCrowdLoop(): void {
     const g = this.graph;
     if (!g || g.crowdSource) return;
+    // stopAmbience leaves the outgoing bed running for CROWD_STOP_TAIL_SEC so
+    // its gain ramp has something to fade. A restart inside that tail (pause →
+    // Restart Game disposes the old session and immediately constructs the new
+    // one) must hand the bed over, not sum a second brown-noise loop into the
+    // same gain node for the rest of the tail.
+    this.retireCrowdTail();
     const src = g.ctx.createBufferSource();
     src.buffer = g.brown;
     src.loop = true;
     src.connect(g.crowdFilter);
     src.start();
     g.crowdSource = src;
+  }
+
+  /** Silence the bed that stopAmbience scheduled but that has not stopped yet. */
+  private retireCrowdTail(): void {
+    const tail = this.crowdTail;
+    this.crowdTail = null;
+    const g = this.graph;
+    if (tail === null || !g || g.ctx.currentTime >= tail.stopAt) return;
+    tail.src.stop();
+    tail.src.disconnect();
   }
 
   play(name: SfxName, opts?: { volume?: number; pitch?: number }): void {
@@ -306,7 +327,10 @@ export class WebAudioEngine implements AudioEngine {
     if (g.crowdSource) {
       const src = g.crowdSource;
       g.crowdSource = null;
-      src.stop(now + 1.0);
+      const stopAt = now + CROWD_STOP_TAIL_SEC;
+      src.stop(stopAt);
+      this.retireCrowdTail(); // an even older tail, if two stops raced
+      this.crowdTail = { src, stopAt };
     }
   }
 }
